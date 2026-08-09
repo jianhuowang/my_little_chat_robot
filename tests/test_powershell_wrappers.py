@@ -33,6 +33,7 @@ def fake_astrbot_environment(tmp_path: Path, exit_code: int) -> dict[str, str]:
         (
             "@echo off\r\n"
             'if defined ASTRBOT_CWD_FILE cd > "%ASTRBOT_CWD_FILE%"\r\n'
+            'if defined ASTRBOT_ARGS_FILE echo %* > "%ASTRBOT_ARGS_FILE%"\r\n'
             f"exit /b {exit_code}\r\n"
         ),
         encoding="ascii",
@@ -184,3 +185,15 @@ def test_initialize_wrapper_ignores_blank_runtime_in_repository_env(
     assert Path(cwd_file.read_text(encoding="utf-8").strip()) == (
         repo / "runtime" / "astrbot"
     )
+
+
+def test_initialize_wrapper_skips_astrbot_confirmation_prompt(tmp_path: Path) -> None:
+    _repo, wrapper = copy_wrapper(tmp_path, "Initialize-AstrBot.ps1")
+    args_file = tmp_path / "astrbot-args.txt"
+    environment = fake_astrbot_environment(tmp_path, exit_code=0)
+    environment["ASTRBOT_ARGS_FILE"] = str(args_file)
+
+    result = run_wrapper(wrapper, environment=environment)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert args_file.read_text(encoding="utf-8").strip() == "init --yes"

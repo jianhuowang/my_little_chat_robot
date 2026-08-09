@@ -38,7 +38,7 @@ New-Item -ItemType Directory -Path $target -Force | Out-Null
 Assert-NoReparsePoint -Root $resolvedRoot -Path $target -SettingName "RuntimeDir"
 Push-Location $target
 try {
-    astrbot init
+    astrbot init --yes
     $exitCode = $LASTEXITCODE
 } finally {
     Pop-Location
