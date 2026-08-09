@@ -122,6 +122,15 @@ def run_preflight(
             )
         elif not addresses:
             results.append(CheckResult(name, False, f"no listener found on port {port}"))
+        elif "127.0.0.1" not in addresses:
+            results.append(
+                CheckResult(
+                    name,
+                    False,
+                    f"required listener 127.0.0.1:{port} not found; "
+                    f"found: {', '.join(addresses) or 'none'}",
+                )
+            )
         else:
             results.append(
                 CheckResult(

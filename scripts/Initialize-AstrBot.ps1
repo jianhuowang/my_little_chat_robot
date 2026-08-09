@@ -23,7 +23,8 @@ if (-not $runtimeWasSupplied) {
     if (Test-Path -LiteralPath $envFile -PathType Leaf) {
         Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
             if ($_ -match '^\s*([^#][^=]*)=(.*)$' -and $matches[1].Trim() -eq "ASTRBOT_RUNTIME_DIR") {
-                $RuntimeDir = $matches[2].Trim()
+                $runtimeFromEnv = $matches[2].Trim()
+                if ($runtimeFromEnv) { $RuntimeDir = $runtimeFromEnv }
             }
         }
     }

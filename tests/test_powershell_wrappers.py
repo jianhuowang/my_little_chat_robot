@@ -164,3 +164,23 @@ def test_initialize_wrapper_explicit_runtime_overrides_repository_env(
     assert Path(cwd_file.read_text(encoding="utf-8").strip()) == (
         repo / "explicit" / "astrbot"
     )
+
+
+def test_initialize_wrapper_ignores_blank_runtime_in_repository_env(
+    tmp_path: Path,
+) -> None:
+    repo, wrapper = copy_wrapper(tmp_path, "Initialize-AstrBot.ps1")
+    (repo / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test-secret\nASTRBOT_RUNTIME_DIR=   \n",
+        encoding="utf-8",
+    )
+    cwd_file = tmp_path / "astrbot-cwd.txt"
+    environment = fake_astrbot_environment(tmp_path, exit_code=0)
+    environment["ASTRBOT_CWD_FILE"] = str(cwd_file)
+
+    result = run_wrapper(wrapper, environment=environment)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert Path(cwd_file.read_text(encoding="utf-8").strip()) == (
+        repo / "runtime" / "astrbot"
+    )

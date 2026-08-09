@@ -23,7 +23,7 @@
 - Ignore messages sent by the bot itself; disable proactive replies, web search, tools, image captioning, STT, and TTS.
 - Keep real secrets in `.env`; commit only `.env.example`.
 - Use a small manually topped-up DeepSeek balance; V1 has no local API gateway, hard daily cap, automatic renewal, or custom retry layer.
-- Bind AstrBot OneBot to `127.0.0.1:6199`, AstrBot WebUI to `127.0.0.1:6185`, and NapCat WebUI to `127.0.0.1:6099`; reject wildcard or non-loopback listeners for these ports by inspecting the Windows TCP listener table.
+- Bind AstrBot OneBot to `127.0.0.1:6199`, AstrBot WebUI to `127.0.0.1:6185`, and NapCat WebUI to `127.0.0.1:6099`; require literal `127.0.0.1` on each port and reject wildcard or non-loopback listeners by inspecting the Windows TCP listener table. Additional loopback listeners are allowed.
 
 ---
 
@@ -524,7 +524,7 @@ def run_preflight(
     listeners = listener_records()
     for name, port in (("astrbot-webui", 6185), ("onebot-reverse-ws", 6199), ("napcat-webui", 6099)):
         addresses = [item.address for item in listeners if item.port == port]
-        safe = bool(addresses) and all(ipaddress.ip_address(item).is_loopback for item in addresses)
+        safe = "127.0.0.1" in addresses and all(ipaddress.ip_address(item).is_loopback for item in addresses)
         results.append(CheckResult(name, safe, ", ".join(addresses) or "not listening"))
     return tuple(results)
 ```
@@ -966,7 +966,7 @@ Create `docs/acceptance-checklist.md` with a checkbox for each test below and th
 3. `/reset`: clears the current session; a follow-up question cannot use facts that existed only before the reset.
 4. Group trigger: an ordinary unmentioned message gets no reply; the same text with an `@` mention gets one reply.
 5. Session isolation: a fact told in private chat A is unavailable in private chat B and in a group; facts are shared among members inside the same group because `unique_session=false`.
-6. Context bound: after `/reset`, complete 12 rounds with distinct random facts `FACT-01` through `FACT-12`; at round 11 confirm only `FACT-01` is gone, and at round 12 confirm `FACT-01` and `FACT-02` are gone while `FACT-03` through `FACT-12` remain. Treat `/stats`, persisted configuration, and conversation history as secondary evidence.
+6. Context bound: after `/reset`, introduce distinct random facts `FACT-01` through `FACT-10`, requiring acknowledgement without repeating any fact number or value. Round 11 introduces `FACT-11` and probes only `FACT-01`; round 12 introduces `FACT-12` and probes only evicted `FACT-02` plus retained control `FACT-03`. Treat model behavior as primary evidence and `/stats`, persisted configuration, and conversation history as secondary evidence.
 7. Non-text input: an image, voice message, video, or file is ignored or receives AstrBot's built-in unsupported response and does not make a DeepSeek request.
 8. Invalid key: temporarily use an invalid API key, observe one visible failure without an endless retry loop or secret disclosure, then restore the key.
 9. Reconnect: restart NapCat, confirm AstrBot logs a new OneBot connection, and confirm one private and one mentioned group message work again.

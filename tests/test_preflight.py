@@ -65,6 +65,44 @@ def test_preflight_rejects_wildcard_or_non_loopback_listener(
     assert "non-loopback" in onebot.detail
 
 
+@pytest.mark.parametrize("insufficient_address", ("::1", "127.0.0.2"))
+def test_preflight_requires_literal_ipv4_loopback_listener(
+    tmp_path, insufficient_address: str
+) -> None:
+    runtime_dir = tmp_path / "astrbot"
+    runtime_dir.mkdir()
+    results = run_preflight(
+        settings(str(runtime_dir)),
+        which=lambda command: f"C:/tools/{command}.exe",
+        listener_records=lambda: (
+            TcpListener("127.0.0.1", 6099),
+            TcpListener("127.0.0.1", 6185),
+            TcpListener(insufficient_address, 6199),
+        ),
+    )
+
+    onebot = next(item for item in results if item.name == "onebot-reverse-ws")
+    assert onebot.ok is False
+    assert "127.0.0.1" in onebot.detail
+
+
+def test_preflight_allows_ipv4_and_ipv6_loopback_listeners_together(tmp_path) -> None:
+    runtime_dir = tmp_path / "astrbot"
+    runtime_dir.mkdir()
+    results = run_preflight(
+        settings(str(runtime_dir)),
+        which=lambda command: f"C:/tools/{command}.exe",
+        listener_records=lambda: (
+            TcpListener("127.0.0.1", 6099),
+            TcpListener("127.0.0.1", 6185),
+            TcpListener("127.0.0.1", 6199),
+            TcpListener("::1", 6199),
+        ),
+    )
+
+    assert all(item.ok for item in results)
+
+
 def test_windows_tcp_listeners_parses_native_listener_inventory(monkeypatch) -> None:
     class Result:
         returncode = 0

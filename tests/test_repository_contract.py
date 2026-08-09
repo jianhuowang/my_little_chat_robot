@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 
@@ -92,10 +93,32 @@ def test_runbook_has_two_window_first_run_and_persistence_checks() -> None:
 
 def test_acceptance_checks_the_precise_ten_round_eviction_boundary() -> None:
     acceptance = (ROOT / "docs/acceptance-checklist.md").read_text(encoding="utf-8")
+    context_check = acceptance.split("- [ ] **上下文边界**：", 1)[1].split(
+        "\n- [ ]", 1
+    )[0]
 
-    assert "FACT-01" in acceptance
-    assert "FACT-12" in acceptance
-    assert "第 11 轮" in acceptance
-    assert "FACT-01" in acceptance and "FACT-02" in acceptance
-    assert "第 12 轮" in acceptance
-    assert "配置和会话历史" in acceptance
+    steps = {
+        int(number): text
+        for number, text in re.findall(r"^  (\d+)\. (.+)$", context_check, re.MULTILINE)
+    }
+    facts = lambda step: set(re.findall(r"FACT-\d{2}", steps[step]))
+
+    assert set(steps) == set(range(1, 7))
+    assert "第 1–10 轮" in steps[2]
+    assert {"FACT-01", "FACT-10"} <= facts(2)
+    assert "只确认已记录" in steps[2]
+    assert "不得复述任何 FACT 编号或事实值" in steps[2]
+    assert facts(3) == {"FACT-01", "FACT-11"}
+    assert "只询问" in steps[3]
+    assert "不能回答" in steps[3]
+    assert facts(4) == {"FACT-02", "FACT-03", "FACT-12"}
+    assert "只询问" in steps[4]
+    assert "应淘汰项" in steps[4]
+    assert "应保留的对照项" in steps[4]
+    assert facts(5) == {"FACT-01", "FACT-02", "FACT-03"}
+    assert "第 11 轮不能回答" in steps[5]
+    assert "第 12 轮不能回答" in steps[5]
+    assert "必须正确回答保留的对照项" in steps[5]
+    assert "只列出当前上下文中仍存在的 FACT 编号" not in context_check
+    assert "模型行为作为主证据" in steps[6]
+    assert "配置和会话历史只能作为佐证" in steps[6]
