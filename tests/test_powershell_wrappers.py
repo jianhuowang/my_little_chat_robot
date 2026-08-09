@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+POWERSHELL = shutil.which("powershell")
+
+pytestmark = pytest.mark.skipif(
+    os.name != "nt" or POWERSHELL is None,
+    reason="Windows PowerShell wrapper tests require Windows PowerShell",
+)
+
+
+def copy_wrapper(tmp_path: Path, name: str) -> tuple[Path, Path]:
+    repo = tmp_path / "repo"
+    scripts = repo / "scripts"
+    scripts.mkdir(parents=True)
+    wrapper = scripts / name
+    shutil.copy2(REPO_ROOT / "scripts" / name, wrapper)
+    return repo, wrapper
+
+
+def fake_astrbot_environment(tmp_path: Path, exit_code: int) -> dict[str, str]:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "astrbot.cmd").write_text(
+        f"@echo off\r\nexit /b {exit_code}\r\n", encoding="ascii"
+    )
+    environment = os.environ.copy()
+    environment.pop("ASTRBOT_RUNTIME_DIR", None)
+    environment["PATH"] = f"{bin_dir}{os.pathsep}{environment['PATH']}"
+    return environment
+
+
+def run_wrapper(
+    wrapper: Path, *arguments: str, environment: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(wrapper),
+            *arguments,
+        ],
+        cwd=wrapper.parent.parent,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def create_junction(link: Path, target: Path) -> None:
+    command = (
+        "& { param($Link, $Target) "
+        "New-Item -ItemType Junction -Path $Link -Target $Target | Out-Null }"
+    )
+    subprocess.run(
+        [str(POWERSHELL), "-NoProfile", "-Command", command, str(link), str(target)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    "wrapper_name", ["Initialize-AstrBot.ps1", "Start-AstrBot.ps1"]
+)
+def test_astrbot_wrapper_propagates_child_exit_code(
+    tmp_path: Path, wrapper_name: str
+) -> None:
+    repo, wrapper = copy_wrapper(tmp_path, wrapper_name)
+    (repo / "runtime" / "astrbot").mkdir(parents=True)
+    (repo / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test-secret\n", encoding="utf-8"
+    )
+
+    result = run_wrapper(
+        wrapper,
+        environment=fake_astrbot_environment(tmp_path, exit_code=23),
+    )
+
+    assert result.returncode == 23, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "wrapper_name", ["Initialize-AstrBot.ps1", "Start-AstrBot.ps1"]
+)
+def test_astrbot_wrapper_rejects_junction_in_runtime_path(
+    tmp_path: Path, wrapper_name: str
+) -> None:
+    repo, wrapper = copy_wrapper(tmp_path, wrapper_name)
+    runtime = repo / "runtime"
+    runtime.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    create_junction(runtime / "astrbot", outside)
+    (repo / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test-secret\n", encoding="utf-8"
+    )
+
+    result = run_wrapper(
+        wrapper,
+        environment=fake_astrbot_environment(tmp_path, exit_code=0),
+    )
+
+    assert result.returncode != 0
+    assert "reparse point" in (result.stdout + result.stderr).lower()
