@@ -13,6 +13,7 @@
 - Host operating system is Windows; all user-facing commands use PowerShell syntax.
 - Use a dedicated QQ small account through NapCatQQ; QQ login remains a manual QR-code action.
 - Use only `deepseek-v4-flash`; do not install Ollama or configure a fallback model.
+- Require AstrBot `>=4.13.0`; provider-key environment expansion is not available in older versions.
 - Set DeepSeek thinking to disabled with `{"thinking":{"type":"disabled"}}`.
 - Cap a generated reply at 512 tokens.
 - Keep at most 10 conversation rounds with `provider_settings.max_context_length=10` and discard one oldest round at a time with `provider_settings.dequeue_context_length=1`.
@@ -22,7 +23,7 @@
 - Ignore messages sent by the bot itself; disable proactive replies, web search, tools, image captioning, STT, and TTS.
 - Keep real secrets in `.env`; commit only `.env.example`.
 - Use a small manually topped-up DeepSeek balance; V1 has no local API gateway, hard daily cap, automatic renewal, or custom retry layer.
-- Bind management and OneBot ports to localhost wherever supported; do not expose them to the public internet.
+- Bind AstrBot OneBot to `127.0.0.1:6199`, AstrBot WebUI to `127.0.0.1:6185`, and NapCat WebUI to `127.0.0.1:6099`; reject wildcard or non-loopback listeners for these ports by inspecting the Windows TCP listener table.
 
 ---
 
@@ -33,10 +34,10 @@
 - `.env.example`: names the required local variables without containing usable credentials.
 - `src/qq_deepseek_setup/settings.py`: loads and validates local settings.
 - `src/qq_deepseek_setup/balance.py`: queries the official DeepSeek balance endpoint.
-- `src/qq_deepseek_setup/preflight.py`: checks dependencies, ports, and local configuration.
+- `src/qq_deepseek_setup/preflight.py`: checks dependencies, local configuration, and actual Windows listener addresses through an injectable inventory boundary.
 - `src/qq_deepseek_setup/cli.py`: exposes `preflight` and `balance` commands.
 - `config/astrbot-v1-checklist.json`: machine-readable target values for WebUI configuration and review.
-- `scripts/Initialize-AstrBot.ps1`: initializes the ignored AstrBot runtime directory.
+- `scripts/Initialize-AstrBot.ps1`: initializes the ignored AstrBot runtime directory, using repository `.env` by default and an explicit `-RuntimeDir` as the override.
 - `scripts/Start-AstrBot.ps1`: loads `.env` into the current process and launches AstrBot without printing secrets.
 - `scripts/Test-Prerequisites.ps1`: invokes the Python preflight command.
 - `scripts/Get-DeepSeekBalance.ps1`: invokes the balance command.
@@ -219,7 +220,7 @@ uv run pytest tests/test_settings.py -q
 uv run pytest -q
 ```
 
-Expected: `3 passed` for the focused test and all collected tests pass.
+Expected: `6 passed` for the focused test and all collected tests pass.
 
 - [ ] **Step 5: Commit the settings contract**
 
@@ -346,6 +347,25 @@ class BalanceStatus:
         }
 
 
+def parse_balance_payload(payload: object) -> BalanceStatus:
+    if not isinstance(payload, dict):
+        raise ValueError
+    if not isinstance(payload.get("is_available"), bool):
+        raise ValueError
+    entries = payload.get("balance_infos")
+    if not isinstance(entries, list):
+        raise ValueError
+    balances = []
+    for item in entries:
+        if not isinstance(item, dict) or not isinstance(item.get("currency"), str):
+            raise ValueError
+        values = [item.get(name) for name in ("total_balance", "granted_balance", "topped_up_balance")]
+        if any(isinstance(value, bool) or not isinstance(value, (str, int, float)) for value in values):
+            raise ValueError
+        balances.append(BalanceInfo(item["currency"], *(str(value) for value in values)))
+    return BalanceStatus(payload["is_available"], tuple(balances))
+
+
 class BalanceClient:
     def __init__(
         self, settings: Settings, transport: httpx.BaseTransport | None = None
@@ -364,20 +384,13 @@ class BalanceClient:
                 response = client.get("/user/balance")
                 response.raise_for_status()
                 payload = response.json()
-        except (httpx.HTTPError, ValueError) as exc:
-            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else "network"
-            raise BalanceError(f"DeepSeek balance query failed ({status})") from None
-
-        infos = tuple(
-            BalanceInfo(
-                currency=str(item["currency"]),
-                total=str(item["total_balance"]),
-                granted=str(item["granted_balance"]),
-                topped_up=str(item["topped_up_balance"]),
-            )
-            for item in payload.get("balance_infos", [])
-        )
-        return BalanceStatus(bool(payload.get("is_available")), infos)
+                return parse_balance_payload(payload)
+        except httpx.HTTPStatusError as exc:
+            raise BalanceError(f"DeepSeek balance query failed ({exc.response.status_code})") from None
+        except httpx.HTTPError:
+            raise BalanceError("DeepSeek balance query failed (network)") from None
+        except ValueError:
+            raise BalanceError("DeepSeek balance query failed (invalid response)") from None
 ```
 
 - [ ] **Step 4: Run focused and full tests**
@@ -387,7 +400,7 @@ uv run pytest tests/test_balance.py -q
 uv run pytest -q
 ```
 
-Expected: `2 passed` for the focused test and all tests pass.
+Expected: `10 passed` for the focused balance test and all tests pass, including malformed top-level and entry schemas.
 
 - [ ] **Step 5: Commit the balance client**
 
@@ -405,15 +418,15 @@ git commit -m "feat: add safe DeepSeek balance query"
 - Create: `tests/test_preflight.py`
 
 **Interfaces:**
-- Consumes: `Settings`, `shutil.which`, and a socket probe supplied through constructor injection.
-- Produces: `run_preflight(settings, which, port_is_listening) -> tuple[CheckResult, ...]`.
+- Consumes: `Settings`, `shutil.which`, and TCP listener records supplied through dependency injection.
+- Produces: `run_preflight(settings, which, listener_records) -> tuple[CheckResult, ...]`; production records come from Windows `Get-NetTCPConnection`, while tests inject deterministic records.
 
 - [ ] **Step 1: Write the failing preflight tests**
 
 Create `tests/test_preflight.py`:
 
 ```python
-from qq_deepseek_setup.preflight import run_preflight
+from qq_deepseek_setup.preflight import TcpListener, run_preflight
 from qq_deepseek_setup.settings import Settings
 
 
@@ -430,7 +443,7 @@ def test_preflight_reports_missing_astrbot() -> None:
     results = run_preflight(
         settings(),
         which=lambda _: None,
-        port_is_listening=lambda _host, _port: False,
+        listener_records=lambda: (),
     )
 
     astrbot = next(item for item in results if item.name == "astrbot")
@@ -444,7 +457,11 @@ def test_preflight_recognizes_running_local_services(tmp_path) -> None:
     results = run_preflight(
         settings(str(runtime_dir)),
         which=lambda command: f"C:/tools/{command}.exe",
-        port_is_listening=lambda _host, port: port in {6185, 6199, 6099},
+        listener_records=lambda: (
+            TcpListener("127.0.0.1", 6099),
+            TcpListener("127.0.0.1", 6185),
+            TcpListener("127.0.0.1", 6199),
+        ),
     )
 
     assert all(item.ok for item in results)
@@ -460,13 +477,13 @@ Expected: collection fails with `ModuleNotFoundError: No module named 'qq_deepse
 
 - [ ] **Step 3: Implement deterministic preflight checks**
 
-Create `src/qq_deepseek_setup/preflight.py`:
+Create `src/qq_deepseek_setup/preflight.py` (the native `windows_tcp_listeners` implementation uses `Get-NetTCPConnection`, validates its JSON, and converts acquisition failures to failed checks as shown in the committed source):
 
 ```python
 from __future__ import annotations
 
+import ipaddress
 import shutil
-import socket
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -480,16 +497,16 @@ class CheckResult:
     detail: str
 
 
-def socket_port_is_listening(host: str, port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.3)
-        return sock.connect_ex((host, port)) == 0
+@dataclass(frozen=True)
+class TcpListener:
+    address: str
+    port: int
 
 
 def run_preflight(
     settings: Settings,
     which: Callable[[str], str | None] = shutil.which,
-    port_is_listening: Callable[[str, int], bool] = socket_port_is_listening,
+    listener_records: Callable[[], tuple[TcpListener, ...]] = windows_tcp_listeners,
 ) -> tuple[CheckResult, ...]:
     astrbot_path = which("astrbot")
     results = [
@@ -504,9 +521,11 @@ def run_preflight(
             str(settings.astrbot_runtime_dir),
         ),
     ]
+    listeners = listener_records()
     for name, port in (("astrbot-webui", 6185), ("onebot-reverse-ws", 6199), ("napcat-webui", 6099)):
-        listening = port_is_listening("127.0.0.1", port)
-        results.append(CheckResult(name, listening, f"127.0.0.1:{port}"))
+        addresses = [item.address for item in listeners if item.port == port]
+        safe = bool(addresses) and all(ipaddress.ip_address(item).is_loopback for item in addresses)
+        results.append(CheckResult(name, safe, ", ".join(addresses) or "not listening"))
     return tuple(results)
 ```
 
@@ -517,7 +536,7 @@ uv run pytest tests/test_preflight.py -q
 uv run pytest -q
 ```
 
-Expected: `2 passed` for the focused test and all tests pass.
+Expected: `6 passed` for the focused test and all tests pass, including wildcard/non-loopback rejection and synthetic native-listener parsing.
 
 - [ ] **Step 5: Commit the preflight domain logic**
 
@@ -643,9 +662,21 @@ Expected: `2 passed` for the focused test and all tests pass.
 Create `scripts/Initialize-AstrBot.ps1`:
 
 ```powershell
-param([string]$RuntimeDir = "runtime\astrbot")
+param([string]$RuntimeDir)
 $ErrorActionPreference = "Stop"
 $resolvedRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$runtimeWasSupplied = $PSBoundParameters.ContainsKey("RuntimeDir")
+if (-not $runtimeWasSupplied) {
+    $RuntimeDir = "runtime\astrbot"
+    $envFile = Join-Path $resolvedRoot ".env"
+    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+        Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^\s*([^#][^=]*)=(.*)$' -and $matches[1].Trim() -eq "ASTRBOT_RUNTIME_DIR") {
+                $RuntimeDir = $matches[2].Trim()
+            }
+        }
+    }
+}
 $target = [System.IO.Path]::GetFullPath((Join-Path $resolvedRoot $RuntimeDir))
 if (-not $target.StartsWith($resolvedRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "RuntimeDir must stay inside the repository"
@@ -806,8 +837,11 @@ Create `config/astrbot-v1-checklist.json`:
 
 ```json
 {
+  "astrbot": {
+    "minimum_version": "4.13.0"
+  },
   "onebot": {
-    "astrbot_host": "0.0.0.0",
+    "astrbot_host": "127.0.0.1",
     "astrbot_port": 6199,
     "napcat_reverse_ws_url": "ws://127.0.0.1:6199/ws",
     "token_must_match": true
@@ -815,7 +849,7 @@ Create `config/astrbot-v1-checklist.json`:
   "management": {
     "astrbot_webui_host": "127.0.0.1",
     "astrbot_webui_port": 6185,
-    "napcat_webui_local_only": true,
+    "napcat_webui_host": "127.0.0.1",
     "napcat_webui_port": 6099
   },
   "model": {
@@ -826,7 +860,12 @@ Create `config/astrbot-v1-checklist.json`:
     "max_tokens": 512,
     "max_context_length": 10,
     "dequeue_context_length": 1,
-    "extra_body": {"thinking": {"type": "disabled"}}
+    "extra_body": {"thinking": {"type": "disabled"}},
+    "cmd_config_provider_model_config": {
+      "model": "deepseek-v4-flash",
+      "max_tokens": 512,
+      "extra_body": {"thinking": {"type": "disabled"}}
+    }
   },
   "platform": {
     "unique_session": false,
@@ -876,29 +915,35 @@ where.exe astrbot
 astrbot --version
 ```
 
+AstrBot 版本必须为 `4.13.0` 或更高。
+
 初始化运行目录：
 
 ```powershell
 .\scripts\Initialize-AstrBot.ps1
 ```
 
+第一次启动前在运行目录的 `data/cmd_config.json` 中设置 `dashboard.host=127.0.0.1`、`dashboard.port=6185`。然后在一个专用 PowerShell 窗口运行 `.\scripts\Start-AstrBot.ps1` 并保持运行；在第二个 PowerShell 窗口完成 WebUI 配置、前置检查和余额查询。
+
 ## 3. 安装和登录 NapCatQQ
 
-从 NapCatQQ 官方 Release 下载 Windows 版本，按照官方 Windows Shell 指南启动，并使用专门的 QQ 小号扫码。不要使用主 QQ 号。NapCat WebUI 默认端口是 `6099`。
+从 NapCatQQ 官方 Release 下载 Windows 版本。在 NapCat `webui.json` 中明确设置 `host` 为 `127.0.0.1`、`port` 为 `6099`，保留 Token 等其他字段；重启后确认日志地址为 `http://127.0.0.1:6099`，再使用专门的 QQ 小号扫码。不要使用主 QQ 号。
 
 ## 4. 连接 OneBot v11
 
-确认 AstrBot WebUI 只监听 `127.0.0.1:6185`，NapCat WebUI 也不对公网开放。在 AstrBot WebUI 创建 `OneBot v11` 机器人：启用，主机 `0.0.0.0`，端口 `6199`。若配置 Token，NapCat 两侧必须一致。
+确认 AstrBot WebUI 只监听 `127.0.0.1:6185`，NapCat WebUI 只监听 `127.0.0.1:6099`。在 AstrBot WebUI 创建 `OneBot v11` 机器人：启用，主机 `127.0.0.1`，端口 `6199`。若配置 Token，NapCat 两侧必须一致。
 
 在 NapCat WebUI 选择“网络配置 → 新建 → WebSocket 客户端”，URL 填写 `ws://127.0.0.1:6199/ws`。AstrBot 控制台出现 `aiocqhttp(OneBot v11) 适配器已连接` 才算成功。
 
 ## 5. 配置 DeepSeek
 
-启动 AstrBot 时使用 `.\scripts\Start-AstrBot.ps1`，使 `$DEEPSEEK_API_KEY` 仅进入当前进程。
+AstrBot 必须通过专用窗口中的 `.\scripts\Start-AstrBot.ps1` 启动，使 `$DEEPSEEK_API_KEY` 仅进入该进程。
 
 在“服务提供商 → 新增”优先选择 DeepSeek；若当前版本没有 DeepSeek 卡片，则选择 OpenAI 兼容提供商。填写：API Base URL `https://api.deepseek.com/v1`，API Key `$DEEPSEEK_API_KEY`，模型 `deepseek-v4-flash`。
 
 模型自定义参数：`max_tokens` 为 `512`，自定义请求体为 `{"thinking":{"type":"disabled"}}`。将最大上下文轮数 `max_context_length` 设为 `10`，每次淘汰轮数 `dequeue_context_length` 设为 `1`。关闭流式输出和所有工具。
+
+保存服务商并记下其 ID。在运行目录 `data/cmd_config.json` 的顶层 `provider` 数组中找到该 ID，只将其 `model_config` 持久化为 `{"model":"deepseek-v4-flash","max_tokens":512,"extra_body":{"thinking":{"type":"disabled"}}}`。保存并重启 AstrBot；只读输出 `model_config`、`api_base` 和密钥引用是否为 `$DEEPSEEK_API_KEY`，不要显示或复制 `key`。只启用该聊天服务商，不配置回退模型。
 
 ## 6. 配置低成本规则
 
@@ -921,7 +966,7 @@ Create `docs/acceptance-checklist.md` with a checkbox for each test below and th
 3. `/reset`: clears the current session; a follow-up question cannot use facts that existed only before the reset.
 4. Group trigger: an ordinary unmentioned message gets no reply; the same text with an `@` mention gets one reply.
 5. Session isolation: a fact told in private chat A is unavailable in private chat B and in a group; facts are shared among members inside the same group because `unique_session=false`.
-6. Context bound: after more than 10 completed rounds, inspect `/stats` and behavior to confirm old context is evicted rather than growing without limit.
+6. Context bound: after `/reset`, complete 12 rounds with distinct random facts `FACT-01` through `FACT-12`; at round 11 confirm only `FACT-01` is gone, and at round 12 confirm `FACT-01` and `FACT-02` are gone while `FACT-03` through `FACT-12` remain. Treat `/stats`, persisted configuration, and conversation history as secondary evidence.
 7. Non-text input: an image, voice message, video, or file is ignored or receives AstrBot's built-in unsupported response and does not make a DeepSeek request.
 8. Invalid key: temporarily use an invalid API key, observe one visible failure without an endless retry loop or secret disclosure, then restore the key.
 9. Reconnect: restart NapCat, confirm AstrBot logs a new OneBot connection, and confirm one private and one mentioned group message work again.

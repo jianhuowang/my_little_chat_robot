@@ -1,4 +1,4 @@
-param([string]$RuntimeDir = "runtime\astrbot")
+param([string]$RuntimeDir)
 $ErrorActionPreference = "Stop"
 
 function Assert-NoReparsePoint {
@@ -16,6 +16,18 @@ function Assert-NoReparsePoint {
 }
 
 $resolvedRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$runtimeWasSupplied = $PSBoundParameters.ContainsKey("RuntimeDir")
+if (-not $runtimeWasSupplied) {
+    $RuntimeDir = "runtime\astrbot"
+    $envFile = Join-Path $resolvedRoot ".env"
+    if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+        Get-Content -LiteralPath $envFile -Encoding UTF8 | ForEach-Object {
+            if ($_ -match '^\s*([^#][^=]*)=(.*)$' -and $matches[1].Trim() -eq "ASTRBOT_RUNTIME_DIR") {
+                $RuntimeDir = $matches[2].Trim()
+            }
+        }
+    }
+}
 $target = [System.IO.Path]::GetFullPath((Join-Path $resolvedRoot $RuntimeDir))
 if (-not $target.StartsWith($resolvedRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "RuntimeDir must stay inside the repository"

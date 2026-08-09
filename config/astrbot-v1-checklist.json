@@ -1,6 +1,9 @@
 {
+  "astrbot": {
+    "minimum_version": "4.13.0"
+  },
   "onebot": {
-    "astrbot_host": "0.0.0.0",
+    "astrbot_host": "127.0.0.1",
     "astrbot_port": 6199,
     "napcat_reverse_ws_url": "ws://127.0.0.1:6199/ws",
     "token_must_match": true
@@ -8,7 +11,7 @@
   "management": {
     "astrbot_webui_host": "127.0.0.1",
     "astrbot_webui_port": 6185,
-    "napcat_webui_local_only": true,
+    "napcat_webui_host": "127.0.0.1",
     "napcat_webui_port": 6099
   },
   "model": {
@@ -19,7 +22,12 @@
     "max_tokens": 512,
     "max_context_length": 10,
     "dequeue_context_length": 1,
-    "extra_body": {"thinking": {"type": "disabled"}}
+    "extra_body": {"thinking": {"type": "disabled"}},
+    "cmd_config_provider_model_config": {
+      "model": "deepseek-v4-flash",
+      "max_tokens": 512,
+      "extra_body": {"thinking": {"type": "disabled"}}
+    }
   },
   "platform": {
     "unique_session": false,

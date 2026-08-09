@@ -1,4 +1,7 @@
-from qq_deepseek_setup.preflight import run_preflight
+import pytest
+
+from qq_deepseek_setup import preflight
+from qq_deepseek_setup.preflight import TcpListener, run_preflight
 from qq_deepseek_setup.settings import Settings
 
 
@@ -15,7 +18,7 @@ def test_preflight_reports_missing_astrbot() -> None:
     results = run_preflight(
         settings(),
         which=lambda _: None,
-        port_is_listening=lambda _host, _port: False,
+        listener_records=lambda: (),
     )
 
     astrbot = next(item for item in results if item.name == "astrbot")
@@ -29,7 +32,51 @@ def test_preflight_recognizes_running_local_services(tmp_path) -> None:
     results = run_preflight(
         settings(str(runtime_dir)),
         which=lambda command: f"C:/tools/{command}.exe",
-        port_is_listening=lambda _host, port: port in {6185, 6199, 6099},
+        listener_records=lambda: (
+            TcpListener("127.0.0.1", 6099),
+            TcpListener("127.0.0.1", 6185),
+            TcpListener("127.0.0.1", 6199),
+        ),
     )
 
     assert all(item.ok for item in results)
+
+
+@pytest.mark.parametrize("unsafe_address", ("0.0.0.0", "::", "192.168.1.25"))
+def test_preflight_rejects_wildcard_or_non_loopback_listener(
+    tmp_path, unsafe_address: str
+) -> None:
+    runtime_dir = tmp_path / "astrbot"
+    runtime_dir.mkdir()
+    results = run_preflight(
+        settings(str(runtime_dir)),
+        which=lambda command: f"C:/tools/{command}.exe",
+        listener_records=lambda: (
+            TcpListener("127.0.0.1", 6099),
+            TcpListener("127.0.0.1", 6185),
+            TcpListener("127.0.0.1", 6199),
+            TcpListener(unsafe_address, 6199),
+        ),
+    )
+
+    onebot = next(item for item in results if item.name == "onebot-reverse-ws")
+    assert onebot.ok is False
+    assert unsafe_address in onebot.detail
+    assert "non-loopback" in onebot.detail
+
+
+def test_windows_tcp_listeners_parses_native_listener_inventory(monkeypatch) -> None:
+    class Result:
+        returncode = 0
+        stdout = (
+            '[{"LocalAddress":"127.0.0.1","LocalPort":6185},'
+            '{"LocalAddress":"0.0.0.0","LocalPort":6199}]'
+        )
+
+    monkeypatch.setattr(preflight.shutil, "which", lambda _: "powershell.exe")
+    monkeypatch.setattr(preflight.subprocess, "run", lambda *args, **kwargs: Result())
+
+    assert preflight.windows_tcp_listeners() == (
+        TcpListener("127.0.0.1", 6185),
+        TcpListener("0.0.0.0", 6199),
+    )

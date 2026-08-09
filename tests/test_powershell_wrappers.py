@@ -30,7 +30,12 @@ def fake_astrbot_environment(tmp_path: Path, exit_code: int) -> dict[str, str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     (bin_dir / "astrbot.cmd").write_text(
-        f"@echo off\r\nexit /b {exit_code}\r\n", encoding="ascii"
+        (
+            "@echo off\r\n"
+            'if defined ASTRBOT_CWD_FILE cd > "%ASTRBOT_CWD_FILE%"\r\n'
+            f"exit /b {exit_code}\r\n"
+        ),
+        encoding="ascii",
     )
     environment = os.environ.copy()
     environment.pop("ASTRBOT_RUNTIME_DIR", None)
@@ -116,3 +121,46 @@ def test_astrbot_wrapper_rejects_junction_in_runtime_path(
 
     assert result.returncode != 0
     assert "reparse point" in (result.stdout + result.stderr).lower()
+
+
+def test_initialize_wrapper_uses_runtime_from_repository_env(tmp_path: Path) -> None:
+    repo, wrapper = copy_wrapper(tmp_path, "Initialize-AstrBot.ps1")
+    (repo / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test-secret\nASTRBOT_RUNTIME_DIR=from-env/astrbot\n",
+        encoding="utf-8",
+    )
+    cwd_file = tmp_path / "astrbot-cwd.txt"
+    environment = fake_astrbot_environment(tmp_path, exit_code=0)
+    environment["ASTRBOT_CWD_FILE"] = str(cwd_file)
+
+    result = run_wrapper(wrapper, environment=environment)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert Path(cwd_file.read_text(encoding="utf-8").strip()) == (
+        repo / "from-env" / "astrbot"
+    )
+
+
+def test_initialize_wrapper_explicit_runtime_overrides_repository_env(
+    tmp_path: Path,
+) -> None:
+    repo, wrapper = copy_wrapper(tmp_path, "Initialize-AstrBot.ps1")
+    (repo / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test-secret\nASTRBOT_RUNTIME_DIR=from-env/astrbot\n",
+        encoding="utf-8",
+    )
+    cwd_file = tmp_path / "astrbot-cwd.txt"
+    environment = fake_astrbot_environment(tmp_path, exit_code=0)
+    environment["ASTRBOT_CWD_FILE"] = str(cwd_file)
+
+    result = run_wrapper(
+        wrapper,
+        "-RuntimeDir",
+        "explicit/astrbot",
+        environment=environment,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert Path(cwd_file.read_text(encoding="utf-8").strip()) == (
+        repo / "explicit" / "astrbot"
+    )
