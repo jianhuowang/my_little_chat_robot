@@ -948,8 +948,8 @@ Windows 上的低成本 QQ 对话机器人部署包：NapCatQQ + AstrBot + DeepS
 uv run pytest tests/test_repository_contract.py -q
 uv run pytest -q
 git diff --check
-$tracked = git ls-files
-Select-String -Path $tracked -Pattern 'sk-[A-Za-z0-9]{12,}' -Encoding UTF8
+$candidateFiles = git ls-files --cached --others --exclude-standard
+Select-String -Path $candidateFiles -Pattern 'sk-[A-Za-z0-9]{12,}' -Encoding UTF8
 ```
 
 Expected: repository contract passes, the full suite passes, `git diff --check` exits 0, and the secret scan returns no matches.
