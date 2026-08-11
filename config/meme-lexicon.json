@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "updated_at": "2026-08-11",
+  "entries": [
+    {
+      "id": "ai-ni-lao-ji",
+      "phrase": "爱你老己",
+      "meaning": "用轻松语气提醒对方照顾自己",
+      "use_when": ["自我关怀", "完成任务后鼓励休息"],
+      "avoid_when": ["严重心理困扰", "医疗建议"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "ban-wei",
+      "phrase": "班味",
+      "meaning": "形容工作带来的疲惫或拘谨感",
+      "use_when": ["轻松吐槽上班状态"],
+      "avoid_when": ["劳动纠纷", "失业或经济困难"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "bao-de",
+      "phrase": "包的",
+      "meaning": "表示有把握、可以做到",
+      "use_when": ["轻松确认小任务", "积极回应邀请"],
+      "avoid_when": ["无法保证的结果", "高风险承诺"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "bu-shi-ge-men",
+      "phrase": "不是哥们",
+      "meaning": "对轻微离谱情况表示惊讶",
+      "use_when": ["熟人式轻松吐槽", "无害反转"],
+      "avoid_when": ["争吵", "陌生人求助", "身份敏感语境"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "qing-xu-jia-zhi",
+      "phrase": "情绪价值拉满",
+      "meaning": "夸赞某件事让人感到被支持或开心",
+      "use_when": ["称赞友善回应", "分享开心小事"],
+      "avoid_when": ["严肃心理问题", "讽刺他人"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "shei-dong-a",
+      "phrase": "谁懂啊",
+      "meaning": "夸张表达一种轻微共鸣或无奈",
+      "use_when": ["日常小烦恼", "轻松共鸣"],
+      "avoid_when": ["重大损失", "创伤经历"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "song-chi-gan",
+      "phrase": "松弛感",
+      "meaning": "形容自然从容、不紧绷的状态",
+      "use_when": ["生活方式闲聊", "鼓励适度放松"],
+      "avoid_when": ["要求立刻处理的风险"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "ting-quan",
+      "phrase": "听劝",
+      "meaning": "表示愿意接受合理建议并调整",
+      "use_when": ["对方采纳建议", "邀请温和反馈"],
+      "avoid_when": ["强迫服从", "专业结论不确定"],
+      "expires_on": "2027-02-28"
+    },
+    {
+      "id": "wo-de-dao-dun",
+      "phrase": "我的刀盾",
+      "meaning": "用抽象空耳表达突然的困惑或震惊",
+      "use_when": ["无害的离谱小事", "反差笑点"],
+      "avoid_when": ["事故", "伤害", "严肃求助"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "wo-yao-yan-pai",
+      "phrase": "我要验牌",
+      "meaning": "轻松表达需要核实真假",
+      "use_when": ["朋友式质疑夸张说法", "核对游戏结果"],
+      "avoid_when": ["指控欺诈", "法律或财务核验"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "yi-lao-shi-qiu-fang-guo",
+      "phrase": "已老实，求放过",
+      "meaning": "自嘲式表示认输或停止折腾",
+      "use_when": ["轻松挑战失败", "无害自我吐槽"],
+      "avoid_when": ["霸凌", "威胁", "权力不对等"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "na-za-le",
+      "phrase": "那咋了",
+      "meaning": "轻松表达不被小事影响的态度",
+      "use_when": ["自我接纳", "无害小尴尬"],
+      "avoid_when": ["逃避责任", "对方认真提出问题"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "ni-wu-di-le",
+      "phrase": "你无敌了",
+      "meaning": "对离谱但无害的操作表示夸张评价",
+      "use_when": ["朋友式调侃", "创意操作"],
+      "avoid_when": ["公开羞辱", "失败后的认真求助"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "shui-ling-ling-di",
+      "phrase": "水灵灵地",
+      "meaning": "给普通动作增加俏皮、轻盈的语气",
+      "use_when": ["轻松描述日常动作"],
+      "avoid_when": ["正式说明", "严肃事件"],
+      "expires_on": "2026-11-30"
+    },
+    {
+      "id": "zhe-hen-nan-ping",
+      "phrase": "这很难评",
+      "meaning": "对无害但复杂或离谱的情况暂不下结论",
+      "use_when": ["轻松围观", "信息不足的小事"],
+      "avoid_when": ["应提供明确帮助", "人身评价"],
+      "expires_on": "2026-11-30"
+    }
+  ]
+}
