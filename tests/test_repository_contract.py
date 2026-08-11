@@ -122,3 +122,40 @@ def test_acceptance_checks_the_precise_ten_round_eviction_boundary() -> None:
     assert "只列出当前上下文中仍存在的 FACT 编号" not in context_check
     assert "模型行为作为主证据" in steps[6]
     assert "配置和会话历史只能作为佐证" in steps[6]
+
+
+def test_persona_sources_and_runtime_boundary_are_committed() -> None:
+    base = (ROOT / "config/persona-base.txt").read_text(encoding="utf-8")
+    lexicon = json.loads(
+        (ROOT / "config/meme-lexicon.json").read_text(encoding="utf-8")
+    )
+    ignore_lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+
+    assert "你不是千早爱音" in base
+    assert "每条回复最多自然使用一个" in base
+    assert lexicon["version"] == 1
+    assert 10 <= len(lexicon["entries"]) <= 20
+    assert len({entry["id"] for entry in lexicon["entries"]}) == len(
+        lexicon["entries"]
+    )
+    assert "runtime/" in ignore_lines
+
+
+def test_runbook_documents_persona_render_and_manual_webui_copy() -> None:
+    runbook = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+
+    assert "qq-deepseek-setup render-persona" in runbook
+    assert "runtime/persona/astrbot-persona.txt" in runbook
+    assert "不要直接修改 AstrBot 的 SQLite" in runbook
+    assert "每条回复最多一个热梗" in runbook
+    assert "只有被直接询问身份" in runbook
+    assert "要求回复明确说明“我是机器人/AI 助手”" not in runbook
+
+
+def test_acceptance_covers_persona_identity_and_serious_topic_boundaries() -> None:
+    acceptance = (ROOT / "docs/acceptance-checklist.md").read_text(encoding="utf-8")
+
+    assert "爱音气质人格" in acceptance
+    assert "严肃求助不玩梗" in acceptance
+    assert "不得声称自己是千早爱音" in acceptance
+    assert "表情包发送不属于第一版" in acceptance

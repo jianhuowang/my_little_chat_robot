@@ -98,7 +98,7 @@ if (@($provider.key) -contains '$DEEPSEEK_API_KEY') { "API key reference: OK" } 
 
 预期模型配置与上面的 JSON 完全一致，Base URL 是 `https://api.deepseek.com/v1`，密钥引用状态为 `OK`。若不一致，停止 AstrBot、修正 `data/cmd_config.json`、保存并重启 AstrBot，再检查一次。
 
-不要配置备用模型、自动模型路由、联网搜索、图片理解或其他多模态能力。在 AstrBot 人格设置中配置系统提示词，要求回复明确说明“我是机器人/AI 助手”，不得冒充真人。
+不要配置备用模型、自动模型路由、联网搜索、图片理解或其他多模态能力。在 AstrBot 人格设置中配置系统提示词；只有被直接询问身份时才说明自己是 AI，不得冒充真人或作品角色。
 
 ## 6. 配置低成本规则
 
@@ -116,5 +116,18 @@ if (@($provider.key) -contains '$DEEPSEEK_API_KEY') { "API key reference: OK" } 
 前置检查会读取 Windows 的实际 TCP 监听表；`6099`、`6185`、`6199` 任一端口没有监听，或存在通配/非回环监听，都会失败。不要为了让检查通过而开放防火墙或改成全接口监听。
 
 检查通过后，按[验收清单](acceptance-checklist.md)逐项完成手工验证。安装、扫码登录和 WebUI 配置都需要用户本人完成；本仓库不会自动登录 QQ、创建密钥、充值或续费。
+
+## 8. 生成人格与本地热梗提示词
+
+在项目根目录运行：
+
+```powershell
+uv run qq-deepseek-setup render-persona
+notepad runtime\persona\astrbot-persona.txt
+```
+
+命令只输出生成路径、活跃/过期词条数和 SHA-256，不会显示完整提示词或密钥。生成文件位于 `runtime/persona/astrbot-persona.txt`。把文件的全部内容复制到 AstrBot WebUI 的 `default` 人格并保存；不要直接修改 AstrBot 的 SQLite 数据库。
+
+词库源文件是 `config/meme-lexicon.json`，最多 20 条，推荐保持 10–15 条。每条都有过期日期；更新后重新运行生成命令并在 WebUI 重新保存。机器人每条回复最多一个热梗，语境不合适时不用；严肃求助、健康、安全、法律、财务、冲突和负面情绪场景禁止玩梗。自动发送表情包不属于第一版。
 
 官方参考：[AstrBot OneBot v11](https://docs.astrbot.app/en/platform/aiocqhttp.html)、[AstrBot 服务商配置](https://docs.astrbot.app/en/providers/start.html)、[AstrBot 模型参数](https://docs.astrbot.app/en/config/model-config.html)、[NapCat WebUI 配置](https://napneko.github.io/config/basic)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
