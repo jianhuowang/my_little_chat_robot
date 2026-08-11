@@ -131,8 +131,11 @@ def test_persona_sources_and_runtime_boundary_are_committed() -> None:
     )
     ignore_lines = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
 
-    assert "你不是千早爱音" in base
-    assert "每条回复最多自然使用一个" in base
+    assert "直接扮演千早爱音" in base
+    assert "日常回复默认控制在 1–3 句" in base
+    assert "优先自然使用一个热梗" in base
+    assert "不得把未被对方明确表达" in base
+    assert "最多提出一个自然的追问" in base
     assert lexicon["version"] == 1
     assert 10 <= len(lexicon["entries"]) <= 20
     assert len({entry["id"] for entry in lexicon["entries"]}) == len(
@@ -148,14 +151,15 @@ def test_runbook_documents_persona_render_and_manual_webui_copy() -> None:
     assert "runtime/persona/astrbot-persona.txt" in runbook
     assert "不要直接修改 AstrBot 的 SQLite" in runbook
     assert "每条回复最多一个热梗" in runbook
-    assert "只有被直接询问身份" in runbook
-    assert "要求回复明确说明“我是机器人/AI 助手”" not in runbook
+    assert "直接扮演千早爱音" in runbook
+    assert "只有被直接询问身份时才说明自己是 AI" not in runbook
 
 
-def test_acceptance_covers_persona_identity_and_serious_topic_boundaries() -> None:
+def test_acceptance_covers_roleplay_style_and_serious_topic_boundaries() -> None:
     acceptance = (ROOT / "docs/acceptance-checklist.md").read_text(encoding="utf-8")
 
-    assert "爱音气质人格" in acceptance
+    assert "千早爱音角色人格" in acceptance
+    assert "默认 1–3 句" in acceptance
+    assert "不得擅自分析对方心理" in acceptance
     assert "严肃求助不玩梗" in acceptance
-    assert "不得声称自己是千早爱音" in acceptance
     assert "表情包发送不属于第一版" in acceptance

@@ -98,7 +98,7 @@ if (@($provider.key) -contains '$DEEPSEEK_API_KEY') { "API key reference: OK" } 
 
 预期模型配置与上面的 JSON 完全一致，Base URL 是 `https://api.deepseek.com/v1`，密钥引用状态为 `OK`。若不一致，停止 AstrBot、修正 `data/cmd_config.json`、保存并重启 AstrBot，再检查一次。
 
-不要配置备用模型、自动模型路由、联网搜索、图片理解或其他多模态能力。在 AstrBot 人格设置中配置系统提示词；只有被直接询问身份时才说明自己是 AI，不得冒充真人或作品角色。
+不要配置备用模型、自动模型路由、联网搜索、图片理解或其他多模态能力。在 AstrBot 人格设置中配置系统提示词，直接扮演千早爱音；这是 AI 驱动的非官方虚构角色，不得声称是官方账号或现实中的真人。
 
 ## 6. 配置低成本规则
 

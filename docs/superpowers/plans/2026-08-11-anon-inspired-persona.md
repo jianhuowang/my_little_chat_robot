@@ -1,5 +1,7 @@
 # Anon-Inspired Meme-Aware Persona Implementation Plan
 
+> **Superseded behavior note (2026-08-11):** Identity, response-length, psychological-inference, and meme-trigger rules in this plan are replaced by [`2026-08-11-persona-style-correction.md`](2026-08-11-persona-style-correction.md). The renderer architecture and validation steps remain current.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a validated local persona renderer that combines an Anon-inspired Chinese chat personality with a small, expiring meme lexicon and produces a safe AstrBot prompt without enabling per-message web search.
