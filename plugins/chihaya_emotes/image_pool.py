@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import stat
+from collections.abc import Iterator
 from pathlib import Path
 from random import Random
 
@@ -10,27 +13,21 @@ SUPPORTED_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 
 class ImagePool:
     def __init__(self, root: Path, rng: Random) -> None:
-        self.root = root.resolve()
+        self.root = root.absolute()
         self._rng = rng
         self._paths: list[Path] = []
         self._last_by_session: dict[str, Path] = {}
 
     def refresh(self) -> int:
-        if not self.root.is_dir():
+        if self._path_is_reparse(self.root) or not self.root.is_dir():
             self._paths = []
             return 0
 
         candidates: list[Path] = []
-        for path in self.root.rglob("*"):
-            relative = path.relative_to(self.root)
-            if any(part.startswith(".") for part in relative.parts):
-                continue
-            if self._has_reparse_component(path):
-                continue
+        for path in self._walk_files():
             try:
                 if (
-                    not path.is_file()
-                    or path.suffix.lower() not in SUPPORTED_SUFFIXES
+                    path.suffix.lower() not in SUPPORTED_SUFFIXES
                     or path.stat().st_size == 0
                 ):
                     continue
@@ -72,16 +69,50 @@ class ImagePool:
             return
         self._paths = [entry for entry in self._paths if entry != target]
 
-    def _has_reparse_component(self, path: Path) -> bool:
-        current = path
-        while current != self.root:
+    def _walk_files(self) -> Iterator[Path]:
+        stack = [self.root]
+        while stack:
+            directory = stack.pop()
+            if self._path_is_reparse(directory):
+                continue
             try:
-                if current.is_symlink() or current.is_junction():
-                    return True
+                with os.scandir(directory) as entries:
+                    directories: list[Path] = []
+                    for entry in entries:
+                        if entry.name.startswith(".") or self._entry_is_reparse(entry):
+                            continue
+                        try:
+                            if entry.is_dir(follow_symlinks=False):
+                                directories.append(Path(entry.path))
+                            elif entry.is_file(follow_symlinks=False):
+                                yield Path(entry.path)
+                        except OSError:
+                            continue
             except OSError:
+                continue
+            stack.extend(sorted(directories, key=str, reverse=True))
+
+    @staticmethod
+    def _entry_is_reparse(entry: os.DirEntry[str]) -> bool:
+        try:
+            if entry.is_symlink():
                 return True
-            current = current.parent
-        return False
+            attributes = getattr(
+                entry.stat(follow_symlinks=False), "st_file_attributes", 0
+            )
+        except OSError:
+            return True
+        return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+
+    @staticmethod
+    def _path_is_reparse(path: Path) -> bool:
+        try:
+            if path.is_symlink() or path.is_junction():
+                return True
+            attributes = getattr(path.stat(follow_symlinks=False), "st_file_attributes", 0)
+        except OSError:
+            return True
+        return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
 
     @staticmethod
     def _digest(path: Path) -> bytes:

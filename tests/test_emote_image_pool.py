@@ -123,3 +123,33 @@ def test_refresh_does_not_follow_directory_junctions(tmp_path) -> None:
 
     assert pool.refresh() == 1
     assert pool._paths == [visible]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="junctions are Windows reparse points")
+def test_refresh_never_enumerates_a_directory_junction_target(
+    tmp_path, monkeypatch
+) -> None:
+    root = tmp_path / "images"
+    outside = tmp_path / "outside"
+    write_fixture(root / "visible.png", b"visible")
+    write_fixture(outside / "escaped.png", b"escaped")
+    link = root / "junction"
+    result = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(link), str(outside)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"directory junctions are unavailable: {result.stderr}")
+
+    real_scandir = os.scandir
+
+    def reject_junction_entry(path):
+        if Path(path) == link:
+            raise AssertionError("scanner entered a directory junction")
+        return real_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", reject_junction_entry)
+
+    assert ImagePool(root, Random(0)).refresh() == 1
