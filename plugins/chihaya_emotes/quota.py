@@ -91,17 +91,29 @@ class RollingQuota:
             return _State()
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("invalid state structure")
             if data.get("version") != 1:
                 raise ValueError("unsupported state version")
+            global_events = data["global_events"]
+            sessions = data["sessions"]
+            last_sent = data["last_sent"]
+            if (
+                not isinstance(global_events, list)
+                or not isinstance(sessions, dict)
+                or not all(isinstance(stamps, list) for stamps in sessions.values())
+                or not isinstance(last_sent, dict)
+            ):
+                raise ValueError("invalid state structure")
             return _State(
-                global_events=[float(item) for item in data["global_events"]],
+                global_events=[float(item) for item in global_events],
                 sessions={
                     str(key): [float(item) for item in stamps]
-                    for key, stamps in data["sessions"].items()
+                    for key, stamps in sessions.items()
                 },
                 last_sent={
                     str(key): float(value)
-                    for key, value in data["last_sent"].items()
+                    for key, value in last_sent.items()
                 },
             )
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):

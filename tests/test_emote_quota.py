@@ -2,6 +2,8 @@ import asyncio
 import hashlib
 import json
 
+import pytest
+
 from plugins.chihaya_emotes import quota as quota_module
 from plugins.chihaya_emotes.quota import QuotaDecision, RollingQuota
 from plugins.chihaya_emotes.settings import EmoteSettings
@@ -62,6 +64,34 @@ def test_corrupt_state_is_quarantined(tmp_path) -> None:
     assert run(quota.reserve("a")) is QuotaDecision.ALLOWED
     assert len(list(tmp_path.glob("quota-state.corrupt-*.json"))) == 1
     assert json.loads(path.read_text(encoding="utf-8"))["version"] == 1
+
+
+@pytest.mark.parametrize(
+    "invalid_state",
+    [
+        [],
+        {
+            "version": 1,
+            "global_events": [],
+            "sessions": [],
+            "last_sent": {},
+        },
+    ],
+    ids=["root-array", "sessions-array"],
+)
+def test_invalid_state_structure_is_quarantined_and_recovers(
+    tmp_path, invalid_state
+) -> None:
+    path = tmp_path / "quota-state.json"
+    path.write_text(json.dumps(invalid_state), encoding="utf-8")
+
+    quota = RollingQuota(path, EmoteSettings(), lambda: 1_000.0)
+
+    assert run(quota.reserve("a")) is QuotaDecision.ALLOWED
+    assert len(list(tmp_path.glob("quota-state.corrupt-*.json"))) == 1
+    assert json.loads(path.read_text(encoding="utf-8"))["sessions"] == {
+        "a": [1_000.0]
+    }
 
 
 def test_third_session_reservation_is_allowed_at_exact_limit(tmp_path) -> None:
