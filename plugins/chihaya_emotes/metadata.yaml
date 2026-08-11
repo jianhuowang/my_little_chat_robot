@@ -1,0 +1,10 @@
+name: chihaya_emotes
+display_name: 千早爱音随机表情包
+desc: 本地随机发送千早爱音表情包，并为最终 LLM 回复低频附图。
+version: 0.1.0
+author: local
+repo: https://github.com/jianhuowang/my_little_chat_robot
+astrbot_version: ">=4.27.2"
+support_platforms:
+  - aiocqhttp
+  - webchat
