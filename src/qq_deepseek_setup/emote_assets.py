@@ -7,6 +7,7 @@ import stat
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -155,17 +156,21 @@ def _walk_images(root: Path) -> Iterator[Path]:
 
 
 def _validated_bytes(path: Path) -> tuple[bytes, str, bool]:
-    with Image.open(path) as image:
+    source_bytes = path.read_bytes()
+    source = BytesIO(source_bytes)
+    with Image.open(source) as image:
         image.verify()
-    with Image.open(path) as image:
-        image.load()
+    source.seek(0)
+    with Image.open(source) as image:
+        for frame_number in range(getattr(image, "n_frames", 1)):
+            image.seek(frame_number)
+            image.load()
     if path.suffix.lower() != ".webp":
-        return path.read_bytes(), path.suffix.lower(), False
-
-    from io import BytesIO
+        return source_bytes, path.suffix.lower(), False
 
     output = BytesIO()
-    with Image.open(path) as image:
+    source.seek(0)
+    with Image.open(source) as image:
         converted = image.convert("RGBA" if "A" in image.getbands() else "RGB")
         converted.save(output, format="PNG")
     return output.getvalue(), ".png", True

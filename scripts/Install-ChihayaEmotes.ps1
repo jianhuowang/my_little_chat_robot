@@ -26,6 +26,28 @@ function Assert-NoReparsePoint {
     }
 }
 
+function Assert-SafeDestinationFile {
+    param([string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+
+    $item = Get-Item -LiteralPath $Path -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "destination file must not be a reparse point"
+    }
+    if (-not ($item -is [System.IO.FileInfo])) {
+        throw "destination file must be a regular file"
+    }
+
+    $links = @(& fsutil hardlink list $Path 2>$null)
+    if ($LASTEXITCODE -ne 0) {
+        throw "unable to determine destination file link count"
+    }
+    $linkCount = @($links | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }).Count
+    if ($linkCount -ne 1) {
+        throw "destination file must have exactly one hard link"
+    }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $runtime = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $RuntimeDir))
 Assert-InsideRepository -Root $repoRoot -Path $runtime -SettingName "RuntimeDir"
@@ -58,7 +80,9 @@ $pluginFiles = @(
     "trigger.py"
 )
 foreach ($pluginFile in $pluginFiles) {
-    Copy-Item -LiteralPath (Join-Path $pluginSource $pluginFile) -Destination (Join-Path $pluginTarget $pluginFile) -Force
+    $destinationFile = Join-Path $pluginTarget $pluginFile
+    Assert-SafeDestinationFile -Path $destinationFile
+    Copy-Item -LiteralPath (Join-Path $pluginSource $pluginFile) -Destination $destinationFile -Force
 }
 
 $python = Join-Path $repoRoot ".venv\Scripts\python.exe"

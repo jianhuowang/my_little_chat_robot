@@ -167,6 +167,101 @@ def test_prepare_emotes_requires_a_complete_pixel_decode(tmp_path: Path) -> None
     assert list(destination.iterdir()) == []
 
 
+def test_prepare_emotes_decodes_every_frame_before_installing_gif(
+    tmp_path: Path,
+) -> None:
+    from PIL import Image, ImageSequence
+    from qq_deepseek_setup.emote_assets import prepare_emotes
+
+    source = tmp_path / "source"
+    source.mkdir()
+    gif = source / "truncated-later-frame.gif"
+    frames = [Image.new("RGB", (32, 32), color) for color in ("red", "green", "blue")]
+    frames[0].save(
+        gif,
+        format="GIF",
+        save_all=True,
+        append_images=frames[1:],
+        duration=100,
+        loop=0,
+    )
+    gif.write_bytes(gif.read_bytes()[:-3])
+
+    with Image.open(gif) as image:
+        image.verify()
+    with Image.open(gif) as image:
+        image.load()
+    with pytest.raises(OSError, match="truncated"):
+        with Image.open(gif) as image:
+            for frame in ImageSequence.Iterator(image):
+                frame.load()
+
+    destination = tmp_path / "runtime" / "emotes"
+    summary = prepare_emotes([source], destination, tmp_path / "runtime")
+
+    assert summary.discovered == 1
+    assert summary.installed == 0
+    assert summary.failed == 1
+    assert list(destination.iterdir()) == []
+
+
+def test_prepare_emotes_installs_the_same_bytes_that_were_decoded(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from PIL import Image
+    from qq_deepseek_setup import emote_assets
+
+    source = tmp_path / "source"
+    source.mkdir()
+    candidate = source / "changing.png"
+    replacement = tmp_path / "replacement.png"
+    Image.new("RGB", (3, 3), "red").save(candidate, format="PNG")
+    Image.new("RGB", (3, 3), "blue").save(replacement, format="PNG")
+    original_bytes = candidate.read_bytes()
+    replacement_bytes = replacement.read_bytes()
+    real_open = emote_assets.Image.open
+    decoded = False
+
+    class MutatingImage:
+        def __init__(self, image):
+            self._image = image
+
+        def __enter__(self):
+            self._image.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._image.__exit__(*args)
+
+        def __getattr__(self, name):
+            return getattr(self._image, name)
+
+        def load(self):
+            nonlocal decoded
+            result = self._image.load()
+            if not decoded:
+                decoded = True
+                candidate.write_bytes(replacement_bytes)
+            return result
+
+    def open_and_change_after_decode(fp, *args, **kwargs):
+        return MutatingImage(real_open(fp, *args, **kwargs))
+
+    monkeypatch.setattr(emote_assets.Image, "open", open_and_change_after_decode)
+    destination = tmp_path / "runtime" / "emotes"
+    summary = emote_assets.prepare_emotes(
+        [source], destination, tmp_path / "runtime"
+    )
+
+    installed = list(destination.iterdir())
+    assert decoded
+    assert candidate.read_bytes() == replacement_bytes
+    assert summary.installed == 1
+    assert len(installed) == 1
+    assert installed[0].read_bytes() == original_bytes
+    assert installed[0].name == f"{hashlib.sha256(original_bytes).hexdigest()}.png"
+
+
 @pytest.mark.skipif(os.name != "nt", reason="junction safety is Windows-specific")
 def test_prepare_emotes_rejects_junction_in_destination_path(tmp_path: Path) -> None:
     import subprocess

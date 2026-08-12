@@ -220,6 +220,21 @@ def test_install_emotes_wrapper_has_repository_and_copy_safety_guards() -> None:
     assert "Write-Host" not in script
 
 
+def test_install_emotes_wrapper_rejects_abnormal_existing_destination_files() -> None:
+    script = (REPO_ROOT / "scripts" / "Install-ChihayaEmotes.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "function Assert-SafeDestinationFile" in script
+    assert "FileAttributes]::ReparsePoint" in script
+    assert "hardlink list" in script
+    assert "unable to determine destination file link count" in script
+    copy_loop = script.split("foreach ($pluginFile in $pluginFiles)", maxsplit=1)[1]
+    assert copy_loop.index("Assert-SafeDestinationFile") < copy_loop.index(
+        "Copy-Item -LiteralPath"
+    )
+
+
 def test_install_emotes_wrapper_parser_accepts_multiple_source_dirs(
     tmp_path: Path,
 ) -> None:
