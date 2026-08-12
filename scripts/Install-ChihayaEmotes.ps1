@@ -48,6 +48,39 @@ function Assert-SafeDestinationFile {
     }
 }
 
+function Test-IsAstrBotProcess {
+    param([object]$Process)
+
+    $processName = [System.IO.Path]::GetFileNameWithoutExtension([string]$Process.Name)
+    if ($processName -eq "astrbot") { return $true }
+
+    $commandLine = [string]$Process.CommandLine
+    if ([string]::IsNullOrWhiteSpace($commandLine)) { return $false }
+    if ($commandLine -notmatch '^\s*(?:"([^"]+)"|(\S+))(.*)$') { return $false }
+
+    $executable = if ($matches[1]) { $matches[1] } else { $matches[2] }
+    $entryName = [System.IO.Path]::GetFileNameWithoutExtension($executable)
+    if ($entryName -eq "astrbot") { return $true }
+    if ($entryName -notin @("python", "pythonw", "py")) { return $false }
+
+    return $matches[3] -match '^\s+(?:-[^\s]+\s+)*-m\s+astrbot(?:\s|$)'
+}
+
+function Assert-AstrBotStopped {
+    try {
+        $runningAstrBot = @(
+            Get-CimInstance Win32_Process | Where-Object {
+                Test-IsAstrBotProcess -Process $_
+            }
+        )
+    } catch {
+        throw "Unable to verify whether AstrBot is running"
+    }
+    if ($runningAstrBot.Count -ne 0) {
+        throw "AstrBot must be stopped before installing emotes"
+    }
+}
+
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $runtime = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $RuntimeDir))
 Assert-InsideRepository -Root $repoRoot -Path $runtime -SettingName "RuntimeDir"
@@ -60,11 +93,7 @@ Assert-InsideRepository -Root $repoRoot -Path $pluginTarget -SettingName "Plugin
 Assert-NoReparsePoint -Root $repoRoot -Path $pluginSource -SettingName "Plugin source"
 Assert-NoReparsePoint -Root $repoRoot -Path $pluginTarget -SettingName "Plugin destination"
 
-$runningAstrBot = Get-CimInstance Win32_Process | Where-Object {
-    $_.CommandLine -and $_.CommandLine.IndexOf($runtime, [System.StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-    $_.CommandLine -match '(?i)astrbot'
-}
-if ($runningAstrBot) { throw "AstrBot must be stopped for the selected runtime" }
+Assert-AstrBotStopped
 
 New-Item -ItemType Directory -Path $pluginTarget -Force | Out-Null
 Assert-NoReparsePoint -Root $repoRoot -Path $pluginTarget -SettingName "Plugin destination"

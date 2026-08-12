@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -76,6 +77,44 @@ def create_junction(link: Path, target: Path) -> None:
         check=True,
         capture_output=True,
         text=True,
+    )
+
+
+def run_install_emotes_process_guard_harness(
+    tmp_path: Path, body: str
+) -> subprocess.CompletedProcess[str]:
+    script_path = REPO_ROOT / "scripts" / "Install-ChihayaEmotes.ps1"
+    command = (
+        "& { param($ScriptPath) "
+        "$tokens = $null; $errors = $null; "
+        "$ast = [System.Management.Automation.Language.Parser]::ParseFile("
+        "$ScriptPath, [ref]$tokens, [ref]$errors); "
+        "if ($errors.Count -ne 0) { exit 90 }; "
+        "$names = @('Test-IsAstrBotProcess', 'Assert-AstrBotStopped'); "
+        "foreach ($name in $names) { "
+        "$definition = $ast.Find({ param($node) "
+        "$node -is [System.Management.Automation.Language.FunctionDefinitionAst] "
+        "-and $node.Name -eq $name }, $true); "
+        "if ($null -eq $definition) { Write-Error \"missing $name\"; exit 91 }; "
+        "Invoke-Expression ($definition.Extent.Text) }; "
+        "Invoke-Expression $env:INSTALL_EMOTES_TEST_BODY }"
+    )
+    environment = os.environ.copy()
+    environment["INSTALL_EMOTES_TEST_BODY"] = body
+    return subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+            str(script_path),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
     )
 
 
@@ -233,6 +272,83 @@ def test_install_emotes_wrapper_rejects_abnormal_existing_destination_files() ->
     assert copy_loop.index("Assert-SafeDestinationFile") < copy_loop.index(
         "Copy-Item -LiteralPath"
     )
+
+
+def test_install_emotes_wrapper_recognizes_only_astrbot_process_entrypoints(
+    tmp_path: Path,
+) -> None:
+    start_script = (REPO_ROOT / "scripts" / "Start-AstrBot.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert "astrbot run" in start_script
+
+    cases = [
+        {"Name": "astrbot.exe", "CommandLine": "astrbot run", "Expected": True},
+        {
+            "Name": "python.exe",
+            "CommandLine": '"C:\\Python\\python.exe" -m astrbot run',
+            "Expected": True,
+        },
+        {
+            "Name": "cmd.exe",
+            "CommandLine": '"C:\\Tools\\astrbot.cmd" run',
+            "Expected": True,
+        },
+        {
+            "Name": "python.exe",
+            "CommandLine": 'python.exe worker.py --config "C:\\astrbot\\config.json"',
+            "Expected": False,
+        },
+        {
+            "Name": "notepad.exe",
+            "CommandLine": 'notepad.exe "notes-about-astrbot.txt"',
+            "Expected": False,
+        },
+    ]
+    body = (
+        f"$cases = ConvertFrom-Json @'\n{json.dumps(cases)}\n'@; "
+        "$actual = @($cases | ForEach-Object { Test-IsAstrBotProcess -Process $_ }); "
+        "$actual | ConvertTo-Json -Compress"
+    )
+
+    result = run_install_emotes_process_guard_harness(tmp_path, body)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout) == [case["Expected"] for case in cases]
+
+
+def test_install_emotes_wrapper_process_query_failure_is_fail_closed(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "function Get-CimInstance { throw 'private query details' }; "
+        "try { Assert-AstrBotStopped; exit 92 } catch { "
+        "if ($_.Exception.Message -ne 'Unable to verify whether AstrBot is running') "
+        "{ Write-Error $_.Exception.Message; exit 93 }; exit 0 }"
+    )
+
+    result = run_install_emotes_process_guard_harness(tmp_path, body)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "private query details" not in result.stdout + result.stderr
+
+
+def test_install_emotes_wrapper_running_astrbot_error_is_fixed_and_path_safe(
+    tmp_path: Path,
+) -> None:
+    body = (
+        "function Get-CimInstance { "
+        "[pscustomobject]@{ Name = 'astrbot.exe'; "
+        "CommandLine = 'astrbot run --private C:\\Users\\private' } }; "
+        "try { Assert-AstrBotStopped; exit 94 } catch { "
+        "if ($_.Exception.Message -ne 'AstrBot must be stopped before installing emotes') "
+        "{ Write-Error $_.Exception.Message; exit 95 }; exit 0 }"
+    )
+
+    result = run_install_emotes_process_guard_harness(tmp_path, body)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "private" not in result.stdout + result.stderr
 
 
 def test_install_emotes_wrapper_parser_accepts_multiple_source_dirs(
