@@ -181,3 +181,37 @@ def test_acceptance_covers_roleplay_style_and_serious_topic_boundaries() -> None
     for document in (runbook, acceptance):
         for contract_item in required_emote_contract:
             assert contract_item in document
+
+
+def test_emote_docs_align_runtime_rollback_and_recoverable_live_probes() -> None:
+    runbook = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
+    acceptance = (ROOT / "docs/acceptance-checklist.md").read_text(encoding="utf-8")
+
+    for required in (
+        "ASTRBOT_RUNTIME_DIR",
+        "-RuntimeDir $runtimeDir",
+        "GetFullPath",
+        "must stay inside the repository",
+        "must not traverse a reparse point",
+        "Start-AstrBot.ps1",
+        "emotes.backup-<timestamp>",
+        "不能移动整个插件目录",
+        "不回滚插件代码",
+    ):
+        assert required in runbook
+
+    for required in (
+        "session_cooldown_seconds=1",
+        "window_seconds=10",
+        "chat_probability=1.0",
+        "混合直接请求和普通回复附图",
+        "窗口到期",
+        "0.20/300/3/10/3600",
+        "重新加载或完整重启",
+        "一次受限的直接请求",
+        "备份明确的 `quota-state.json`",
+        "损坏内容",
+        "损坏文件会被隔离",
+        "恢复备份",
+    ):
+        assert required in acceptance
