@@ -128,6 +128,33 @@ notepad runtime\persona\astrbot-persona.txt
 
 命令只输出生成路径、活跃/过期词条数和 SHA-256，不会显示完整提示词或密钥。生成文件位于 `runtime/persona/astrbot-persona.txt`。把文件的全部内容复制到 AstrBot WebUI 的 `default` 人格并保存；不要直接修改 AstrBot 的 SQLite 数据库。
 
-词库源文件是 `config/meme-lexicon.json`，最多 20 条，推荐保持 10–15 条。每条都有过期日期；更新后重新运行生成命令并在 WebUI 重新保存。机器人每条回复最多一个热梗，语境不合适时不用；严肃求助、健康、安全、法律、财务、冲突和负面情绪场景禁止玩梗。自动发送表情包不属于第一版。
+词库源文件是 `config/meme-lexicon.json`，最多 20 条，推荐保持 10–15 条。每条都有过期日期；更新后重新运行生成命令并在 WebUI 重新保存。机器人每条回复最多一个热梗，语境不合适时不用；严肃求助、健康、安全、法律、财务、冲突和负面情绪场景禁止玩梗。
+
+## 9. 千早爱音表情包插件
+
+此插件只在本地运行目录中安装图片和状态，不向仓库提交运行时图片。私聊中，精确发送 `来只千早爱音`（可选前缀 `/`）会直接返回一张图片；群聊中只要普通成员消息包含连续短语 `来只千早爱音` 即可触发，**无需 @** 机器人。插件会忽略机器人自己的消息以防止自消息回环。直接请求会绕过 LLM，**不调用 DeepSeek**；普通 DeepSeek 最终文字回复则可按低概率附带图片。
+
+先完全停止 AstrBot，但保持 NapCat/QQ 的登录与连接状态不动。安装器会拒绝任何可识别的正在运行的 AstrBot，因此不得在 AstrBot 仍运行时尝试安装。然后只使用这两个已批准的本地图片源目录运行：
+
+```powershell
+.\scripts\Install-ChihayaEmotes.ps1 -SourceDir @(
+    'C:\Documents\ChatGPT\talk_robort\世一可爱千早爱音MyGO!!!!!【表情包】分享',
+    'C:\Documents\ChatGPT\talk_robort\千早爱音表情包-补充'
+)
+```
+
+安装器只输出公开 JSON 摘要。确认 `discovered=133`、`failed=0` 且 `installed>0`；仅当转换后发现内容完全相同的输出时，最终 `installed` 数字可以低于 133。它会把图片放入 Git 忽略的运行时图片目录 `runtime/astrbot/data/plugins/chihaya_emotes/emotes`，而不是改动两个源目录。
+
+之后用现有脚本启动 AstrBot：
+
+```powershell
+.\scripts\Start-AstrBot.ps1
+```
+
+在 WebUI 中重新加载并启用 `chihaya_emotes`。保留默认设置：普通文字回复附图概率 `0.20`（20%）、同一会话冷却 `300` 秒、滚动 `3600` 秒窗口内每会话 `3` 张、全局 `10` 张。换言之，默认冷却为 300 秒，滚动窗口为 3600 秒。主动请求和普通回复附图使用共享额度；全局限额不是按群或私聊分别计算。
+
+`quota-state.json`、`emotes` 以及 `emotes.backup-*` 备份目录都保留在本地并由 Git 忽略。`quota-state.json` 保存额度状态，所以插件重新加载或完整重启 AstrBot 后额度仍会保留，也就是重启后仍保留。排障时若图片池为空或状态文件格式损坏，插件应降级为不发图或返回已批准的本地提示，不应触发 DeepSeek。
+
+如需回滚，先停止 AstrBot；把明确的当前插件目录 `runtime/astrbot/data/plugins/chihaya_emotes` 移到同级的人工命名保留位置，再恢复同级最新的明确 `emotes.backup-*` 备份，最后重新启动 AstrBot。不要删除或移动两个图片源目录，也不要通过扩大监听范围来排错；服务仍只允许 `127.0.0.1:6185`、`127.0.0.1:6199` 和 `127.0.0.1:6099`。
 
 官方参考：[AstrBot OneBot v11](https://docs.astrbot.app/en/platform/aiocqhttp.html)、[AstrBot 服务商配置](https://docs.astrbot.app/en/providers/start.html)、[AstrBot 模型参数](https://docs.astrbot.app/en/config/model-config.html)、[NapCat WebUI 配置](https://napneko.github.io/config/basic)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。

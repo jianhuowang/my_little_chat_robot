@@ -157,9 +157,27 @@ def test_runbook_documents_persona_render_and_manual_webui_copy() -> None:
 
 def test_acceptance_covers_roleplay_style_and_serious_topic_boundaries() -> None:
     acceptance = (ROOT / "docs/acceptance-checklist.md").read_text(encoding="utf-8")
+    runbook = (ROOT / "docs/setup-windows.md").read_text(encoding="utf-8")
 
     assert "千早爱音角色人格" in acceptance
     assert "默认 1–3 句" in acceptance
     assert "不得擅自分析对方心理" in acceptance
     assert "严肃求助不玩梗" in acceptance
-    assert "表情包发送不属于第一版" in acceptance
+
+    required_emote_contract = (
+        "来只千早爱音",
+        "无需 @",
+        "20%",
+        "300 秒",
+        "每会话 `3`",
+        "全局 `10`",
+        "3600 秒",
+        "共享额度",
+        "不调用 DeepSeek",
+        "运行时图片",
+        "Git 忽略",
+        "重启后仍保留",
+    )
+    for document in (runbook, acceptance):
+        for contract_item in required_emote_contract:
+            assert contract_item in document
