@@ -197,3 +197,52 @@ def test_initialize_wrapper_skips_astrbot_confirmation_prompt(tmp_path: Path) ->
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert args_file.read_text(encoding="utf-8").strip() == "init --yes"
+
+
+def test_install_emotes_wrapper_has_repository_and_copy_safety_guards() -> None:
+    script = (REPO_ROOT / "scripts" / "Install-ChihayaEmotes.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert '$ErrorActionPreference = "Stop"' in script
+    assert "Resolve-Path" in script
+    assert "must stay inside the repository" in script
+    assert "Assert-NoReparsePoint" in script
+    assert script.index("Assert-NoReparsePoint") < script.index("Copy-Item")
+    assert "Copy-Item -LiteralPath" in script
+    assert "Copy-Item -Path" not in script
+    assert "Get-CimInstance" in script
+    assert "CommandLine" in script
+    assert "AstrBot must be stopped" in script
+    assert ".venv" in script
+    assert "qq_deepseek_setup.cli install-emotes" in script
+    assert "Get-ChildItem" not in script
+    assert "Write-Host" not in script
+
+
+def test_install_emotes_wrapper_parser_accepts_multiple_source_dirs(
+    tmp_path: Path,
+) -> None:
+    command = (
+        "& { param($ScriptPath) "
+        "$errors = $null; "
+        "$tokens = $null; "
+        "[void][System.Management.Automation.Language.Parser]::ParseFile("
+        "$ScriptPath, [ref]$tokens, [ref]$errors); "
+        "if ($errors.Count -ne 0) { $errors | Out-String | Write-Error; exit 1 } }"
+    )
+    result = subprocess.run(
+        [
+            str(POWERSHELL),
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            command,
+            str(REPO_ROOT / "scripts" / "Install-ChihayaEmotes.ps1"),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr

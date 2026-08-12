@@ -71,3 +71,70 @@ def test_render_persona_error_returns_two(monkeypatch, capsys, tmp_path) -> None
 
     assert cli.main(["render-persona"]) == 2
     assert capsys.readouterr().out.strip() == "ERROR: invalid meme lexicon"
+
+
+def test_install_emotes_missing_source_returns_two_without_listing_contents(
+    capsys, tmp_path
+) -> None:
+    missing = tmp_path / "private-source-name"
+    destination = tmp_path / "runtime" / "emotes"
+
+    exit_code = cli.main(
+        [
+            "install-emotes",
+            "--source",
+            str(missing),
+            "--destination",
+            str(destination),
+            "--allowed-root",
+            str(tmp_path / "runtime"),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert output.startswith("ERROR: source directory does not exist")
+    assert "secret" not in output.lower()
+
+
+def test_install_emotes_prints_only_public_summary(monkeypatch, capsys, tmp_path) -> None:
+    from qq_deepseek_setup.emote_assets import AssetSummary
+
+    source = tmp_path / "private-source-name"
+    destination = tmp_path / "runtime" / "emotes"
+    allowed_root = tmp_path / "runtime"
+    source.mkdir()
+    expected = AssetSummary(3, 2, 1, 0, 1, destination)
+    received = {}
+
+    def fake_prepare(source_dirs, selected_destination, selected_root):
+        received["args"] = (source_dirs, selected_destination, selected_root)
+        return expected
+
+    monkeypatch.setattr(cli, "prepare_emotes", fake_prepare, raising=False)
+
+    exit_code = cli.main(
+        [
+            "install-emotes",
+            "--source",
+            str(source),
+            "--destination",
+            str(destination),
+            "--allowed-root",
+            str(allowed_root),
+        ]
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert received["args"] == ([source], destination, allowed_root)
+    assert json.loads(output) == expected.to_public_dict()
+    assert source.name not in output
+
+
+@pytest.mark.parametrize("command", ["preflight", "balance", "render-persona"])
+def test_existing_commands_reject_install_emote_options(command: str) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main([command, "--source", "unexpected"])
+
+    assert exc_info.value.code == 2
