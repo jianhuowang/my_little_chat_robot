@@ -190,15 +190,15 @@ def test_emote_docs_align_runtime_rollback_and_recoverable_live_probes() -> None
     for required in (
         "ASTRBOT_RUNTIME_DIR",
         "-RuntimeDir $runtimeDir",
-        "GetFullPath",
-        "must stay inside the repository",
-        "must not traverse a reparse point",
         "Start-AstrBot.ps1",
         "emotes.backup-<timestamp>",
         "不能移动整个插件目录",
         "不回滚插件代码",
     ):
         assert required in runbook
+    assert runbook.count("-RuntimeDir $runtimeDir") == 2
+    assert "Select-String -LiteralPath .env" not in runbook
+    assert "Get-Content -LiteralPath .env" not in runbook
 
     for required in (
         "session_cooldown_seconds=1",
@@ -213,5 +213,6 @@ def test_emote_docs_align_runtime_rollback_and_recoverable_live_probes() -> None
         "损坏内容",
         "损坏文件会被隔离",
         "恢复备份",
+        "A 的第 3 次直接请求后等待超过 1 秒且仍在 10 秒窗口内，再发 A 的第 4 次",
     ):
         assert required in acceptance

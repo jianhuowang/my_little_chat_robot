@@ -136,33 +136,13 @@ notepad runtime\persona\astrbot-persona.txt
 
 先完全停止 AstrBot，但保持 NapCat/QQ 的登录与连接状态不动。安装器会拒绝任何可识别的正在运行的 AstrBot，因此不得在 AstrBot 仍运行时尝试安装。然后只使用这两个已批准的本地图片源目录运行：
 
-`Install-ChihayaEmotes.ps1` 的默认运行目录是 `runtime\astrbot`，而 `Start-AstrBot.ps1` 从 `.env` 的非敏感 `ASTRBOT_RUNTIME_DIR` 读取运行目录。先在不输出 `.env`、密钥或 QQ ID 的前提下只解析此单一设置；未设置时使用相同默认值。下列检查会将它规范化为仓库内路径并拒绝仓库外路径或重解析点。不要继续使用未通过此检查的值。
+在同一个 PowerShell 窗口先指定这次使用的相对运行目录。默认值是 `runtime\astrbot`；若你先前已使用自定义运行目录，请填入与该既有运行目录相同的相对值。不要读取、打印或解析 `.env`；两个包装器会在运行前自行验证该值仍在仓库内且路径不经过重解析点。
 
 ```powershell
-$repoRoot = (Resolve-Path -LiteralPath .).Path
-$runtimeDir = "runtime\astrbot"
-$runtimeLine = Select-String -LiteralPath .env -Encoding UTF8 `
-    -Pattern '^\s*ASTRBOT_RUNTIME_DIR\s*=\s*(?<value>[^#\r\n]*)\s*$' |
-    Select-Object -First 1
-if ($null -ne $runtimeLine -and $runtimeLine.Matches[0].Groups['value'].Value.Trim()) {
-    $runtimeDir = $runtimeLine.Matches[0].Groups['value'].Value.Trim()
-}
-$runtimePath = [System.IO.Path]::GetFullPath((Join-Path $repoRoot $runtimeDir))
-if (-not $runtimePath.StartsWith($repoRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "ASTRBOT_RUNTIME_DIR must stay inside the repository"
-}
-$relative = $runtimePath.Substring($repoRoot.Length).TrimStart([char[]]@("\", "/"))
-$current = $repoRoot
-foreach ($segment in $relative.Split([char[]]@("\", "/"), [System.StringSplitOptions]::RemoveEmptyEntries)) {
-    $current = Join-Path $current $segment
-    if (-not (Test-Path -LiteralPath $current)) { break }
-    if (((Get-Item -LiteralPath $current -Force).Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "ASTRBOT_RUNTIME_DIR must not traverse a reparse point"
-    }
-}
+$runtimeDir = 'runtime\astrbot'
 ```
 
-保留同一个 `$runtimeDir` 变量，并显式传给安装器；这与随后无参数运行的 `Start-AstrBot.ps1` 从同一 `ASTRBOT_RUNTIME_DIR` 得到的路径一致：
+保留同一个 `$runtimeDir` 变量，并显式传给安装器和启动包装器；之后日常启动也可以继续显式传入同一个值：
 
 ```powershell
 .\scripts\Install-ChihayaEmotes.ps1 -RuntimeDir $runtimeDir -SourceDir @(
@@ -171,18 +151,18 @@ foreach ($segment in $relative.Split([char[]]@("\", "/"), [System.StringSplitOpt
 )
 ```
 
-安装器只输出公开 JSON 摘要。确认 `discovered=133`、`failed=0` 且 `installed>0`；仅当转换后发现内容完全相同的输出时，最终 `installed` 数字可以低于 133。它会把图片放入 Git 忽略的运行时图片目录 `$runtimePath\data\plugins\chihaya_emotes\emotes`，而不是改动两个源目录。
+安装器只输出公开 JSON 摘要。确认 `discovered=133`、`failed=0` 且 `installed>0`；仅当转换后发现内容完全相同的输出时，最终 `installed` 数字可以低于 133。它会把图片放入 Git 忽略的运行时图片目录 `$runtimeDir\data\plugins\chihaya_emotes\emotes`，而不是改动两个源目录。
 
 之后用现有脚本启动 AstrBot：
 
 ```powershell
-.\scripts\Start-AstrBot.ps1
+.\scripts\Start-AstrBot.ps1 -RuntimeDir $runtimeDir
 ```
 
 在 WebUI 中重新加载并启用 `chihaya_emotes`。保留默认设置：普通文字回复附图概率 `0.20`（20%）、同一会话冷却 `300` 秒、滚动 `3600` 秒窗口内每会话 `3` 张、全局 `10` 张。换言之，默认冷却为 300 秒，滚动窗口为 3600 秒。主动请求和普通回复附图使用共享额度；全局限额不是按群或私聊分别计算。
 
 `quota-state.json`、`emotes` 以及 `emotes.backup-*` 备份目录都保留在本地并由 Git 忽略。`quota-state.json` 保存额度状态，所以插件重新加载或完整重启 AstrBot 后额度仍会保留，也就是重启后仍保留。排障时若图片池为空或状态文件格式损坏，插件应降级为不发图或返回已批准的本地提示，不应触发 DeepSeek。
 
-如需回滚，先停止 AstrBot。此流程只恢复图片池，**不回滚插件代码**：设置 `$pluginDir = Join-Path $runtimePath 'data\plugins\chihaya_emotes'`、`$emotesDir = Join-Path $pluginDir 'emotes'` 后，仅移动精确的 `$emotesDir` 到同一 `$pluginDir` 内人工命名的保留位置。枚举 `$pluginDir` 下的目录并只接受名称精确匹配 `^emotes\.backup-\d{8}T\d{6}(\d{6})?Z$` 的 `emotes.backup-<timestamp>`；确认该目录是普通目录、在 `$pluginDir` 内且不是重解析点，选择最新的一个，再将它恢复为精确的 `$emotesDir`。不能移动整个插件目录，也不要删除或移动两个图片源目录。恢复后重新启动 AstrBot；不要通过扩大监听范围来排错，服务仍只允许 `127.0.0.1:6185`、`127.0.0.1:6199` 和 `127.0.0.1:6099`。
+如需回滚，先停止 AstrBot。此流程只恢复图片池，**不回滚插件代码**：设置 `$pluginDir = Join-Path $runtimeDir 'data\plugins\chihaya_emotes'`、`$emotesDir = Join-Path $pluginDir 'emotes'` 后，仅移动精确的 `$emotesDir` 到同一 `$pluginDir` 内人工命名的保留位置。枚举 `$pluginDir` 下的目录并只接受名称精确匹配 `^emotes\.backup-\d{8}T\d{6}(\d{6})?Z$` 的 `emotes.backup-<timestamp>`；确认该目录是普通目录、在 `$pluginDir` 内且不是重解析点，选择最新的一个，再将它恢复为精确的 `$emotesDir`。不能移动整个插件目录，也不要删除或移动两个图片源目录。恢复后以同一 `$runtimeDir` 重新启动 AstrBot；不要通过扩大监听范围来排错，服务仍只允许 `127.0.0.1:6185`、`127.0.0.1:6199` 和 `127.0.0.1:6099`。
 
 官方参考：[AstrBot OneBot v11](https://docs.astrbot.app/en/platform/aiocqhttp.html)、[AstrBot 服务商配置](https://docs.astrbot.app/en/providers/start.html)、[AstrBot 模型参数](https://docs.astrbot.app/en/config/model-config.html)、[NapCat WebUI 配置](https://napneko.github.io/config/basic)、[DeepSeek 思考模式](https://api-docs.deepseek.com/guides/thinking_mode/)。
