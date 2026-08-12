@@ -9,8 +9,36 @@ from plugins.chihaya_emotes.quota import QuotaDecision, RollingQuota
 from plugins.chihaya_emotes.settings import EmoteSettings
 
 
+SESSION_KEY = "a" * 64
+NEXT_SESSION_KEY = "b" * 64
+
+
 def run(coro):
     return asyncio.run(coro)
+
+
+def valid_state(*stamps: float) -> dict:
+    events = list(stamps)
+    return {
+        "version": 1,
+        "global_events": events,
+        "sessions": {SESSION_KEY: events},
+        "last_sent": {SESSION_KEY: max(events)},
+    }
+
+
+def assert_state_is_quarantined_and_replaced(tmp_path, invalid_state) -> None:
+    path = tmp_path / "quota-state.json"
+    path.write_text(json.dumps(invalid_state), encoding="utf-8")
+
+    quota = RollingQuota(path, EmoteSettings(), lambda: 1_000.0)
+
+    assert run(quota.reserve(NEXT_SESSION_KEY)) is QuotaDecision.ALLOWED
+    assert len(list(tmp_path.glob("quota-state.corrupt-*.json"))) == 1
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["global_events"] == [1_000.0]
+    assert payload["sessions"] == {NEXT_SESSION_KEY: [1_000.0]}
+    assert payload["last_sent"] == {NEXT_SESSION_KEY: 1_000.0}
 
 
 def test_cooldown_and_rolling_expiry(tmp_path) -> None:
@@ -36,11 +64,12 @@ def test_probability_gate_does_not_consume_quota(tmp_path) -> None:
 
 def test_restart_restores_state_without_plain_session_id(tmp_path) -> None:
     path = tmp_path / "quota-state.json"
+    session_key = hashlib.sha256(b"private-session").hexdigest()
     first = RollingQuota(path, EmoteSettings(), lambda: 1_000.0)
-    assert run(first.reserve("hashed-session")) is QuotaDecision.ALLOWED
-    assert "hashed-session" in path.read_text(encoding="utf-8")
+    assert run(first.reserve(session_key)) is QuotaDecision.ALLOWED
+    assert session_key in path.read_text(encoding="utf-8")
     second = RollingQuota(path, EmoteSettings(), lambda: 1_001.0)
-    assert run(second.reserve("hashed-session")) is QuotaDecision.COOLDOWN
+    assert run(second.reserve(session_key)) is QuotaDecision.COOLDOWN
 
 
 def test_concurrent_sessions_never_exceed_global_limit(tmp_path) -> None:
@@ -92,6 +121,80 @@ def test_invalid_state_structure_is_quarantined_and_recovers(
     assert json.loads(path.read_text(encoding="utf-8"))["sessions"] == {
         "a": [1_000.0]
     }
+
+
+@pytest.mark.parametrize(
+    "invalid_stamp",
+    [float("nan"), float("inf"), True],
+    ids=["nan", "infinity", "boolean"],
+)
+def test_non_finite_or_boolean_timestamp_quarantines_whole_state(
+    tmp_path, invalid_stamp
+) -> None:
+    assert_state_is_quarantined_and_replaced(tmp_path, valid_state(invalid_stamp))
+
+
+@pytest.mark.parametrize(
+    "invalid_stamp",
+    [-1.0, 1_000.001],
+    ids=["negative", "future"],
+)
+def test_out_of_range_timestamp_quarantines_whole_state(
+    tmp_path, invalid_stamp
+) -> None:
+    assert_state_is_quarantined_and_replaced(tmp_path, valid_state(invalid_stamp))
+
+
+@pytest.mark.parametrize(
+    "invalid_key",
+    ["A" * 64, "a" * 63, "g" * 64],
+    ids=["uppercase", "wrong-length", "non-hex"],
+)
+def test_invalid_session_or_last_sent_key_quarantines_whole_state(
+    tmp_path, invalid_key
+) -> None:
+    invalid_state = valid_state(900.0)
+    invalid_state["sessions"] = {invalid_key: [900.0]}
+    invalid_state["last_sent"] = {invalid_key: 900.0}
+
+    assert_state_is_quarantined_and_replaced(tmp_path, invalid_state)
+
+
+def test_global_events_multiset_mismatch_quarantines_whole_state(tmp_path) -> None:
+    invalid_state = valid_state(800.0, 900.0)
+    invalid_state["global_events"] = [800.0, 800.0]
+
+    assert_state_is_quarantined_and_replaced(tmp_path, invalid_state)
+
+
+@pytest.mark.parametrize(
+    "invalid_state",
+    [
+        {
+            "version": 1,
+            "global_events": [],
+            "sessions": {SESSION_KEY: []},
+            "last_sent": {SESSION_KEY: 900.0},
+        },
+        {
+            "version": 1,
+            "global_events": [900.0],
+            "sessions": {SESSION_KEY: [900.0]},
+            "last_sent": {NEXT_SESSION_KEY: 900.0},
+        },
+        {
+            "version": 1,
+            "global_events": [800.0, 900.0],
+            "sessions": {SESSION_KEY: [800.0, 900.0]},
+            "last_sent": {SESSION_KEY: 800.0},
+        },
+    ],
+    ids=["empty-session", "last-sent-key-mismatch", "last-sent-not-maximum"],
+)
+def test_inconsistent_session_metadata_quarantines_whole_state(
+    tmp_path, invalid_state
+) -> None:
+    assert_state_is_quarantined_and_replaced(tmp_path, invalid_state)
 
 
 def test_third_session_reservation_is_allowed_at_exact_limit(tmp_path) -> None:

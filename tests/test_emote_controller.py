@@ -6,7 +6,7 @@ import pytest
 
 from plugins.chihaya_emotes.controller import EmoteController
 from plugins.chihaya_emotes.image_pool import ImagePool
-from plugins.chihaya_emotes.quota import RollingQuota
+from plugins.chihaya_emotes.quota import QuotaDecision, RollingQuota
 from plugins.chihaya_emotes.settings import EmoteSettings
 
 
@@ -43,6 +43,23 @@ def make_controller(
     pool.refresh()
     quota = RollingQuota(tmp_path / "quota-state.json", settings, lambda: 1_000.0)
     return EmoteController(pool, quota, settings, FixedRandom(probability))
+
+
+def make_two_image_controller(tmp_path: Path) -> EmoteController:
+    image_root = tmp_path / "images"
+    image_root.mkdir()
+    (image_root / "a.png").write_bytes(b"a")
+    (image_root / "b.png").write_bytes(b"b")
+    settings = EmoteSettings(
+        chat_probability=0.20,
+        session_cooldown_seconds=300,
+        session_hourly_limit=3,
+        global_hourly_limit=10,
+    )
+    pool = ImagePool(image_root, Random(0))
+    pool.refresh()
+    quota = RollingQuota(tmp_path / "quota-state.json", settings, lambda: 1_000.0)
+    return EmoteController(pool, quota, settings, FixedRandom(0.0))
 
 
 @pytest.fixture
@@ -132,6 +149,58 @@ def test_passive_state_write_failure_is_silent(controller, monkeypatch) -> None:
     monkeypatch.setattr(controller.quota, "_save", fail_save)
 
     assert run(controller.passive("umo-1")) is None
+
+
+@pytest.mark.parametrize(
+    "rejection",
+    [
+        QuotaDecision.COOLDOWN,
+        QuotaDecision.SESSION_LIMIT,
+        QuotaDecision.GLOBAL_LIMIT,
+    ],
+    ids=["cooldown", "session-limit", "global-limit"],
+)
+def test_direct_rejection_does_not_replace_last_approved_image(
+    tmp_path, monkeypatch, rejection
+) -> None:
+    controller = make_two_image_controller(tmp_path)
+    first = run(controller.direct("private", "来只千早爱音", "umo-1", False))
+    assert first is not None and first.image is not None
+    decisions = iter([rejection, QuotaDecision.ALLOWED])
+
+    async def reserve(_session_key, gate=lambda: True):
+        return next(decisions)
+
+    monkeypatch.setattr(controller.quota, "reserve", reserve)
+
+    blocked = run(controller.direct("private", "来只千早爱音", "umo-1", False))
+    allowed = run(controller.direct("private", "来只千早爱音", "umo-1", False))
+
+    assert blocked is not None and blocked.image is None
+    assert allowed is not None and allowed.image is not None
+    assert allowed.image != first.image
+
+
+def test_passive_probability_rejection_does_not_replace_last_approved_image(
+    tmp_path, monkeypatch
+) -> None:
+    controller = make_two_image_controller(tmp_path)
+
+    async def reserve(_session_key, gate=lambda: True):
+        return QuotaDecision.ALLOWED if gate() else QuotaDecision.PROBABILITY
+
+    monkeypatch.setattr(controller.quota, "reserve", reserve)
+    first = run(controller.passive("umo-1"))
+    assert first is not None
+
+    controller.rng.probability = 1.0
+    assert run(controller.passive("umo-1")) is None
+
+    controller.rng.probability = 0.0
+    allowed = run(controller.passive("umo-1"))
+
+    assert allowed is not None
+    assert allowed != first
 
 
 def test_disappearing_selected_file_is_retried_before_reserving_quota(

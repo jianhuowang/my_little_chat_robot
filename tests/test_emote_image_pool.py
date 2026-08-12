@@ -46,7 +46,7 @@ def test_refresh_collapses_only_byte_identical_files_by_sha256(tmp_path) -> None
     assert pool._paths == [canonical, distinct]
 
 
-def test_choose_avoids_previous_path_for_the_same_session(tmp_path) -> None:
+def test_choose_does_not_record_history_until_marked_sent(tmp_path) -> None:
     root = tmp_path / "images"
     write_fixture(root / "a.png", b"a")
     write_fixture(root / "b.png", b"b")
@@ -57,8 +57,26 @@ def test_choose_avoids_previous_path_for_the_same_session(tmp_path) -> None:
     second = pool.choose("session")
 
     assert first is not None
-    assert second is not None
-    assert second != first
+    assert second == first
+
+    pool.mark_sent("session", first)
+
+    assert pool.choose("session") != first
+
+
+def test_mark_sent_records_only_an_exact_existing_current_pool_path(tmp_path) -> None:
+    root = tmp_path / "images"
+    current = write_fixture(root / "current.png", b"current").resolve()
+    outside = write_fixture(tmp_path / "outside.png", b"outside").resolve()
+    pool = ImagePool(root, Random(0))
+    pool.refresh()
+
+    pool.mark_sent("outside", outside)
+    pool.mark_sent("unindexed", root / "unindexed.png")
+    current.unlink()
+    pool.mark_sent("missing", current)
+
+    assert pool._last_by_session == {}
 
 
 def test_choose_rescans_once_after_all_indexed_files_disappear(tmp_path) -> None:

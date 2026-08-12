@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
+from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from math import isfinite
 from pathlib import Path
 from time import time
 from typing import Callable
@@ -28,6 +31,9 @@ class _State:
     global_events: list[float] = field(default_factory=list)
     sessions: dict[str, list[float]] = field(default_factory=dict)
     last_sent: dict[str, float] = field(default_factory=dict)
+
+
+_SESSION_KEY_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 
 class RollingQuota:
@@ -91,31 +97,7 @@ class RollingQuota:
             return _State()
         try:
             data = json.loads(self.state_path.read_text(encoding="utf-8"))
-            if not isinstance(data, dict):
-                raise ValueError("invalid state structure")
-            if data.get("version") != 1:
-                raise ValueError("unsupported state version")
-            global_events = data["global_events"]
-            sessions = data["sessions"]
-            last_sent = data["last_sent"]
-            if (
-                not isinstance(global_events, list)
-                or not isinstance(sessions, dict)
-                or not all(isinstance(stamps, list) for stamps in sessions.values())
-                or not isinstance(last_sent, dict)
-            ):
-                raise ValueError("invalid state structure")
-            return _State(
-                global_events=[float(item) for item in global_events],
-                sessions={
-                    str(key): [float(item) for item in stamps]
-                    for key, stamps in sessions.items()
-                },
-                last_sent={
-                    str(key): float(value)
-                    for key, value in last_sent.items()
-                },
-            )
+            return self._validate_state(data, self.clock())
         except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             quarantine = self.state_path.with_name(
@@ -126,6 +108,68 @@ class RollingQuota:
             except OSError:
                 pass
             return _State()
+
+    @staticmethod
+    def _validate_state(data: object, now: float) -> _State:
+        if not isinstance(data, dict):
+            raise ValueError("invalid state structure")
+        if type(data.get("version")) is not int or data["version"] != 1:
+            raise ValueError("unsupported state version")
+        global_events = data["global_events"]
+        sessions = data["sessions"]
+        last_sent = data["last_sent"]
+        if (
+            not isinstance(global_events, list)
+            or not isinstance(sessions, dict)
+            or not isinstance(last_sent, dict)
+        ):
+            raise ValueError("invalid state structure")
+
+        def validate_stamp(stamp: object) -> float:
+            if (
+                isinstance(stamp, bool)
+                or not isinstance(stamp, (int, float))
+                or (isinstance(stamp, float) and not isfinite(stamp))
+                or not 0 <= stamp <= now
+            ):
+                raise ValueError("invalid timestamp")
+            return float(stamp)
+
+        validated_global = [validate_stamp(stamp) for stamp in global_events]
+        validated_sessions: dict[str, list[float]] = {}
+        for key, stamps in sessions.items():
+            if (
+                not isinstance(key, str)
+                or _SESSION_KEY_PATTERN.fullmatch(key) is None
+                or not isinstance(stamps, list)
+                or not stamps
+            ):
+                raise ValueError("invalid session state")
+            validated_sessions[key] = [validate_stamp(stamp) for stamp in stamps]
+
+        validated_last_sent: dict[str, float] = {}
+        for key, stamp in last_sent.items():
+            if (
+                not isinstance(key, str)
+                or _SESSION_KEY_PATTERN.fullmatch(key) is None
+            ):
+                raise ValueError("invalid last-sent state")
+            validated_last_sent[key] = validate_stamp(stamp)
+
+        if set(validated_sessions) != set(validated_last_sent):
+            raise ValueError("inconsistent session keys")
+        if any(
+            validated_last_sent[key] != max(stamps)
+            for key, stamps in validated_sessions.items()
+        ):
+            raise ValueError("inconsistent last-sent state")
+        session_events = [
+            stamp for stamps in validated_sessions.values() for stamp in stamps
+        ]
+        if Counter(validated_global) != Counter(session_events):
+            raise ValueError("inconsistent global events")
+
+        return _State(validated_global, validated_sessions, validated_last_sent)
 
     def _save(self, state: _State) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)

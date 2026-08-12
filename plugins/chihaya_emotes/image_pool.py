@@ -58,9 +58,11 @@ class ImagePool:
             return None
         previous = self._last_by_session.get(session_key)
         candidates = [path for path in available if path != previous] or available
-        chosen = self._rng.choice(candidates)
-        self._last_by_session[session_key] = chosen
-        return chosen
+        return self._rng.choice(candidates)
+
+    def mark_sent(self, session_key: str, path: Path) -> None:
+        if path in self._paths and path.is_file():
+            self._last_by_session[session_key] = path
 
     def discard(self, path: Path) -> None:
         try:

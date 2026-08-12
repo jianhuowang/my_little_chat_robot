@@ -26,7 +26,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         if args.command == "install-emotes":
-            result = prepare_emotes(args.source, args.destination, args.allowed_root)
+            try:
+                result = prepare_emotes(
+                    args.source, args.destination, args.allowed_root
+                )
+            except OSError:
+                print("ERROR: unable to install emotes due to a filesystem error")
+                return 2
             print(json.dumps(result.to_public_dict(), ensure_ascii=False))
             return 0
 

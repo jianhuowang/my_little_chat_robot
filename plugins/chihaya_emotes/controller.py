@@ -53,6 +53,7 @@ class EmoteController:
             return DirectReply(text="今天一只都没跑出来，图片库存好像空了")
         decision = await self.quota.reserve(session_key)
         if decision is QuotaDecision.ALLOWED:
+            self.pool.mark_sent(session_key, image)
             return DirectReply(image=image)
         if decision is QuotaDecision.STATE_ERROR:
             return DirectReply(text="今天的爱音库存记账失败了，先不乱发")
@@ -67,7 +68,10 @@ class EmoteController:
             session_key,
             gate=lambda: self.rng.random() < self.settings.chat_probability,
         )
-        return image if decision is QuotaDecision.ALLOWED else None
+        if decision is not QuotaDecision.ALLOWED:
+            return None
+        self.pool.mark_sent(session_key, image)
+        return image
 
     def _choose_existing(self, session_key: str) -> Path | None:
         image = self.pool.choose(session_key)

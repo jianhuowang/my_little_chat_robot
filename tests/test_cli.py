@@ -132,6 +132,35 @@ def test_install_emotes_prints_only_public_summary(monkeypatch, capsys, tmp_path
     assert source.name not in output
 
 
+def test_install_emotes_filesystem_failure_returns_fixed_public_error(
+    monkeypatch, capsys, tmp_path
+) -> None:
+    private_path = tmp_path / "private-source-name" / "secret.png"
+
+    def fail_prepare(_source_dirs, _destination, _allowed_root):
+        raise OSError(f"access denied: {private_path}")
+
+    monkeypatch.setattr(cli, "prepare_emotes", fail_prepare)
+
+    exit_code = cli.main(
+        [
+            "install-emotes",
+            "--source",
+            str(tmp_path / "source"),
+            "--destination",
+            str(tmp_path / "destination"),
+            "--allowed-root",
+            str(tmp_path),
+        ]
+    )
+
+    output = capsys.readouterr().out
+    assert exit_code == 2
+    assert output == "ERROR: unable to install emotes due to a filesystem error\n"
+    assert str(private_path) not in output
+    assert "access denied" not in output
+
+
 @pytest.mark.parametrize("command", ["preflight", "balance", "render-persona"])
 def test_existing_commands_reject_install_emote_options(command: str) -> None:
     with pytest.raises(SystemExit) as exc_info:
