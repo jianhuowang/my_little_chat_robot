@@ -1,0 +1,7 @@
+{
+  "chat_probability": {"description": "普通 LLM 回复附图概率", "type": "float", "default": 0.2},
+  "session_cooldown_seconds": {"description": "同一会话发图冷却秒数", "type": "int", "default": 300},
+  "session_hourly_limit": {"description": "滚动窗口内每会话图片上限", "type": "int", "default": 3},
+  "global_hourly_limit": {"description": "滚动窗口内全局图片上限", "type": "int", "default": 10},
+  "window_seconds": {"description": "滚动额度窗口秒数", "type": "int", "default": 3600}
+}
